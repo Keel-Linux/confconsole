@@ -247,7 +247,7 @@ class NetworkInterfaces:
 
     def get_if_conf(self, ifname: str, key: str) -> list[str] | None:
         if ifname in self.conf:
-            for line in self.conf:
+            for line in self.conf[ifname]:
                 line_list = line.strip().split()
                 if line_list[0] == key:
                     return line_list[1:]
