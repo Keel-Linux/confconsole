@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 import subprocess
@@ -6,6 +7,8 @@ from time import sleep
 
 from netinfo import InterfaceInfo
 from netinfo import get_hostname
+
+log = logging.getLogger(__name__)
 
 
 class IfError(Exception):
@@ -308,10 +311,16 @@ def ifup(ifname: str, force: bool = False) -> str:
     if force:
         ifup_args.extend(["--force", "--ignore-errors"])
     ifup_args.append(ifname)
-
+    log.debug("running: %s", " ".join(ifup_args))
     ifup_cmd = subprocess.run(ifup_args, capture_output=True, text=True)
-
+    log.debug(
+        "ifup %s -> rc=%s stderr=%r",
+        ifname,
+        ifup_cmd.returncode,
+        ifup_cmd.stderr,
+    )
     if not force and ifup_cmd.returncode != 0:
+        log.error("failed to bring up %r: %s", ifname, ifup_cmd.stderr)
         raise BadIfConfigError(
             f"failed to bring up interface {ifname!r} error:"
             f" {ifup_cmd.stderr!r}"
@@ -326,10 +335,16 @@ def ifdown(ifname: str, force: bool = False) -> str:
         ifdown_args.extend(["--force", "--ignore-errors"])
 
     ifdown_args.append(ifname)
-
+    log.debug("running: %s", " ".join(ifdown_args))
     ifdown_cmd = subprocess.run(ifdown_args, capture_output=True, text=True)
-
-    if ifdown_cmd.returncode != 0:
+    log.debug(
+        "ifdown %s -> rc=%s stderr=%r",
+        ifname,
+        ifdown_cmd.returncode,
+        ifdown_cmd.stderr,
+    )
+    if not force and ifdown_cmd.returncode != 0:
+        log.error("failed to bring down %r: %s", ifname, ifdown_cmd.stderr)
         raise BadIfConfigError(
                 f"failed to bring down interface {ifname!r}"
                 f" error: {ifdown_cmd.stderr!r}"
@@ -341,6 +356,7 @@ def unconfigure_if(ifname: str) -> str | None:
     try:
         ifdown(ifname)
     except Exception as e:
+        log.exception("unconfigure_if failed for %s", ifname)
         return str(e)
 
     interfaces = NetworkInterfaces()
@@ -360,7 +376,6 @@ def unconfigure_if(ifname: str) -> str | None:
     except Exception as e:
         backup_interfaces.write()
         ifup(ifname, force=True)
-
         return str(e)
     return None
 
@@ -397,6 +412,7 @@ def set_static(
 
         return None
     except Exception as e:  # TODO - this is essentially a bare except
+        log.exception("set_static failed for %s", ifname)
         return str(e)
 
 
@@ -423,6 +439,7 @@ def set_dhcp(ifname: str) -> str | None:
             raise IfError(f"Error obtaining IP address\n\n{output}")
         return None
     except Exception as e:
+        log.exception("set_dhcp failed for %s", ifname)
         return str(e)
 
 
