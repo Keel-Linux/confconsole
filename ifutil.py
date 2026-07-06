@@ -303,13 +303,11 @@ def get_nameservers(ifname: str) -> list[str]:
 
 
 def ifup(ifname: str, force: bool = False) -> str:
-    # force is not the same as --force. Here force will configure regardless of
-    # errors
 
+    ifup_args = ["/usr/sbin/ifup"]
     if force:
-        ifup_args = ["/usr/sbin/ifup", "--force", "--ignore-errors", ifname]
-    else:
-        ifup_args = ["/usr/sbin/ifup", "--force", ifname]
+        ifup_args.extend(["--force", "--ignore-errors"])
+    ifup_args.append(ifname)
 
     ifup_cmd = subprocess.run(ifup_args, capture_output=True, text=True)
 
@@ -322,15 +320,12 @@ def ifup(ifname: str, force: bool = False) -> str:
 
 
 def ifdown(ifname: str, force: bool = False) -> str:
-    # force is not the same as --force. Here force will configure regardless of
-    # errors
 
+    ifdown_args = ["/usr/sbin/ifdown"]
     if force:
-        ifdown_args = [
-            "/usr/sbin/ifdown", "--force", "--ignore-errors", ifname
-        ]
-    else:
-        ifdown_args = ["/usr/sbin/ifdown", "--force", ifname]
+        ifdown_args.extend(["--force", "--ignore-errors"])
+
+    ifdown_args.append(ifname)
 
     ifdown_cmd = subprocess.run(ifdown_args, capture_output=True, text=True)
 
