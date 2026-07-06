@@ -349,8 +349,10 @@ def unconfigure_if(ifname: str) -> str | None:
     interfaces.set_manual(ifname)
 
     try:
-        subprocess.check_output(["/usr/sbin/ifconfig", ifname, "0.0.0.0"])
-    except subprocess.CalledProcessError as e:
+        subprocess.check_output(
+            ["/usr/sbin/ip", "addr", "flush", "dev", ifname],
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError) as e:
         return str(e)
 
     try:
