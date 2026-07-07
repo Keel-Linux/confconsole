@@ -158,14 +158,16 @@ class NetworkInterfaces:
         }
         return interfaces
 
-    def read(self) -> None:
+    def read(self, conf_file: str | None = None) -> None:
+        if conf_file is None:
+            conf_file = self.CONF_FILE
         # clear config
         self.conf = {}
         self.unconfigured = False
 
         ifname: str | None = None
 
-        with open(self.CONF_FILE) as fob:
+        with open(conf_file) as fob:
             for line in fob:
                 line = line.rstrip()
 
@@ -181,14 +183,16 @@ class NetworkInterfaces:
                 elif ifname:
                     self.conf[ifname].append(line)
 
-    def write(self) -> None:
+    def write(self, conf_file: str | None = None) -> None:
+        if conf_file is None:
+            conf_file = self.CONF_FILE
         if not self.unconfigured:
             raise ManuallyConfiguredError(
-                f"refusing to write to {self.CONF_FILE}\n"
+                f"refusing to write to {conf_file}\n"
                 f"header not found: {self.HEADER_UNCONFIGURED}"
             )
 
-        with open(self.CONF_FILE, "w") as fob:
+        with open(conf_file, "w") as fob:
             fob.write(self.HEADER_UNCONFIGURED + "\n")
             for iface in self.conf.keys():
                 fob.write("\n\n")
