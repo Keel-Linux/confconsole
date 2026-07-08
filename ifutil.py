@@ -1,8 +1,11 @@
+import json
 import logging
 import os
 import re
 import subprocess
 from dataclasses import dataclass
+from ipaddress import ip_address
+from os.path import join, exists
 from time import sleep
 
 from netinfo import InterfaceInfo
@@ -15,7 +18,15 @@ class IfError(Exception):
     pass
 
 
-class InvalidIPv4Error(IfError):
+class InvalidIPError(IfError):
+    pass
+
+
+class InvalidIPv4Error(InvalidIPError):
+    pass
+
+
+class InvalidIPv6Error(InvalidIPError):
     pass
 
 
@@ -62,6 +73,228 @@ def _preprocess_interface_config(config: str) -> list[str]:
     if len(new_lines) == 2 and hostname:
         new_lines.append(f"    hostname {hostname}")
     return new_lines
+
+
+def _list_to_data(lines: list[str]) -> list[str | dict[str, str | list[str]]]:
+    """Split an ifutil interface info list into iface-stanza 'data' format.
+
+    E.g.:
+    iface_lines = [
+        'auto eth0',
+        'iface eth0 inet dhcp', '    hostname core',
+        'iface eth0 inet6 dhcp', '    hostname core',
+    ]
+    Returns:
+    [
+        'auto eth0',
+        {
+            'iface': 'eth0',
+            'family': 'inet',
+            'method': 'dhcp',
+            'options': [['hostname', 'core']],
+        },{
+            'iface': 'eth0'
+            'family': 'inet6',
+            'method': 'dhcp',
+            'options': [['hostname', 'core'],
+        },
+    ]
+    """
+    # this (somewhat) duplicates the function of other code here, however the
+    # existing code isn't ipv6 aware - this explictly supports splitting ipv4
+    # and ipv6 config and IMO provides a nicer interface to work with
+    blocks: list[str | dict[str, str | list[str]]] = []
+    current = None
+
+    for line in lines:
+        is_indented = line.startswith((" ", "\t"))
+        if not is_indented:
+            # starting a new top-level record -> close off any open stanza
+            if current is not None:
+                blocks.append(current)
+                current = None
+
+            if line.strip().startswith("iface"):
+                iface_header = line.strip()
+                if len(iface_header.split()) != 4:
+                    raise BadIfConfigError(
+                        f"Invalid iface header: '{iface_header}'",
+                    )
+                family, method = iface_header.split()[2:4]
+                current = {
+                    "family": family,
+                    "method": method,
+                    "options": [],
+                }
+            else:
+                blocks.append(line)  # "auto eth0", comments, blank lines...
+        else:
+            if current is not None:
+                # replace existing indent with 4 spaces
+                current["options"].append(line.strip().split())
+            else:
+                # indented line with no open stanza (shouldn't normally
+                # happen) - keep it so nothing gets silently dropped
+                blocks.append(line)
+    if current is not None:
+        blocks.append(current)
+    return blocks
+
+
+def _data_to_list(
+    iface_data: list[str | dict[str, str | list[str]]],
+) -> list[str]:
+    """Convert iface 'data' info back to standard interface lines list."""
+    iface_list = []
+    for item in iface_data:
+        if isinstance(item, str):
+            iface_list.append(item)
+        else:
+            iface_list.append(
+                f"iface {item['iface']} {item['family']} {item['method']}"
+            )
+            for option in item["options"]:
+                iface_list.append(f"    {' '.join(option)}")
+    return iface_list
+
+
+def _get_raw_opts(
+        iface_lines: list[str], inet_family: str = "inet",
+) -> list[list[str]]:
+    """Parse iface info list and return a list of options split into lists."""
+    for section in _list_to_data(iface_lines):
+        if "family" in section and section["family"] == inet_family:
+            return section["options"]
+    return []
+
+
+def _merge_iface_options(
+        current_opts: list[list[str]],
+        new_opts: dict[str, str | list[str] | None],
+) -> list[list[str]]:
+    """Merge existing iface options with new ones.
+
+    Args:
+        current_opts (list[list[str]]):
+            List of interface stanza option lines - each item in a line split
+            into a list.
+        new_opts (dict[str, str | list[str] | None]):
+            Dictionary of key/value option pairs to add to/overide
+            'current_opts'.
+
+    Note:
+        'new_opts':
+            - Keys which have string or list values are added to the start of
+              the updated options list as a list (split on whitespace char).
+              E.g. ['key', 'value1', 'value2'].
+            - Keys with None value are ignored.
+            - If a key already exists in 'current_opts' the value from new_opts
+              will override it.
+            - If a hostname entry does not exist in either dataset, one will be
+              generated and included as the first item in the return list.
+            - All remaining items from 'current_opts' will be retained
+              verbatum.
+
+    Returns:
+        list[list[str]]:
+            List of merged interface stanza option lines in same format as
+            'current_opts'.
+    """
+    # map var -> key name, keep only ones that have a value
+    new_opts = {k: v for k, v in new_opts.items() if v is not None}
+
+    # remove hostname if it exists in new_opts
+    try:
+        new_hostname = new_opts.pop("hostname")
+    except KeyError:
+        new_hostname = None
+
+    def format_value(v: str | list[str]) -> str:
+        # convert value lists to space separated string.
+        # E.g. join list of nameservers
+        if isinstance(v, list):
+            return " ".join(v)
+        return str(v)
+
+    # new/updated values go first
+    final_list = []
+    for k, v in new_opts.items():
+        if isinstance(v, str):
+            final_list.append([k, *v.split()])
+        else:
+            final_list.append([k, *v])
+
+    # then existing lines, skipping any whose key we've already replaced
+    for opt in current_opts:
+        if opt[0] == "hostname" and not new_hostname:
+            new_hostname = opt[1]
+            continue
+        elif opt[0] in new_opts:
+            continue  # new value override already set
+        final_list.append(opt)  # untouched
+
+    # add hostname back in as first item
+    final_list.insert(0, ["hostname", new_hostname or get_hostname()])
+
+    return final_list
+
+
+def _strip_static_opts(options: list[list[str]]) -> list[list[str]]:
+    """Strips unwanted/irrelevant options for dhcp iface.
+
+    Accepts a list of iface option lists - i.e. as stored in iface-stanza
+    'data'. Any options that are common in static config, but don't make sense
+    in a dhcp iface will be removed.
+
+    Returns data in the same format - i.e.:
+        [
+            ['option_key1', 'option_value1'],
+            ['option_key2', 'option_value2.0', 'option_value2.1'],
+            [...],
+        ]
+
+    Also:
+        - Ensures a hostname line exists. If it's missing, one will be added.
+        - Ensures hostname is the first option.
+    """
+    updated_options = []
+    hostname = ["hostname", get_hostname()]
+    for option in options:
+        if option[0] in (
+            "address", "netmask", "gateway", "dns-nameservers",
+        ):
+            continue
+        elif option[0] == "hostname":
+            hostname = option
+            continue
+        updated_options.append(option)
+
+    updated_options.insert(0, hostname)
+    return updated_options
+
+
+def _valid_ip(ip: str) -> str:
+    """Validate an IP address.
+
+    Returns:
+        str:
+            Validated IPv4 or IPv6 address.
+
+    Note:
+        - A valid IP/CIDR is considered an invalid IP.
+
+    Raises:
+        InvalidIPError:
+            - If IP is not a valid IPv4 or IPv6 (including valid IP/CIDR).
+    """
+    if "/" in ip:
+        # ipaddress.ip_address(ip/cidr) is considered a valid ip
+        raise InvalidIPError(f"Must be plain IP, not IP/CIDR: '{ip}'")
+    try:
+        _ip = ip_address(ip)
+    except ValueError as e:
+        raise InvalidIPError(str(e)) from e
+    return ip
 
 
 @dataclass
@@ -135,20 +368,34 @@ class NetworkInterfaces:
         "bridge_waitport",
     ]
 
-    def _get_opts_subset(self, ifname: str, opts: list[str]) -> list[str]:
+    def _get_opts_subset(
+        self, ifname: str, opts: list[str], inet_family: str = "inet",
+    ) -> list[str]:
         if ifname not in self.conf:
             raise InterfaceNotFoundError(f"no existing config for {ifname}")
-        return [
-            line.strip()
-            for line in self.conf[ifname]
-            if line.strip().split()[0] in opts
-        ]
+        ifconf_block = _list_to_data(self.conf[ifname])
+        option_subset = []
+        for stanza in ifconf_block:
+            if "family" in stanza and stanza["family"] == inet_family:
+                for option in stanza["options"]:
+                    if option[0] in opts:
+                        option_subset.append(" ".join(option))
+        return option_subset
 
-    def get_iface_opts(self, ifname: str) -> list[str]:
-        return self._get_opts_subset(ifname, self._iface_opts)
+    def get_iface_opts(self, ifname: str, inet_fam: str = "inet") -> list[str]:
+        return self._get_opts_subset(ifname, self._iface_opts, inet_fam)
 
-    def get_bridge_opts(self, ifname: str) -> list[str]:
-        return self._get_opts_subset(ifname, self._bridge_opts)
+    def get_bridge_opts(self, ifname: str, inet_fam: str = "inet") -> list[str]:
+        return self._get_opts_subset(ifname, self._bridge_opts, inet_fam)
+
+    def get_method(self, ifname: str, inet_fam: str = "inet") -> str:
+        if ifname not in self.conf:
+            return ""
+        iface_data = _list_to_data(self.conf[ifname])
+        for stanza in iface_data:
+            if "family" in stanza and stanza["family"] == inet_fam:
+                return stanza["method"]
+        return ""
 
     def duplicate(self) -> "NetworkInterfaces":
         interfaces = NetworkInterfaces()
@@ -193,39 +440,89 @@ class NetworkInterfaces:
             )
 
         with open(conf_file, "w") as fob:
-            fob.write(self.HEADER_UNCONFIGURED + "\n")
+            fob.write(self.HEADER_UNCONFIGURED + "\n\n")
             for iface in self.conf.keys():
-                fob.write("\n\n")
+                fob.write("\n")
                 fob.write("\n".join(self.conf[iface]))
                 fob.write("\n")
 
-    def gen_default_if_config(self, ifname: str) -> None:
+    def gen_default_if_config(
+        self, ifname: str, inet_family: str = "both",
+    ) -> None:
+        """Generate an eth interface config with DHCP IPv4 &/or IPv6.
+
+        Args:
+            ifname (str):
+                Interface name - e.g. 'eth0'
+            inet_family (str):
+                One of:
+                    'both'  - IPv4 and IPv6 stanzas.
+                    'inet'  - IPv4 stanza only (IPv6 disabled)
+                    'inet6' - IPv6 stanza only (IPv4 disabled)
+
+        Raises:
+            InterfaceNotFoundError:
+                If ``iface`` is not an ethernet interface (starts with 'e').
+        """
         if ifname.startswith("e"):
+            iface_txt_block = [f"auto {ifname}"]
+            if inet_family == "both" or "inet":
+                iface_txt_block.extend([
+                    f"iface {ifname} inet dhcp",
+                    f"    hostname {get_hostname()}"
+                ])
+            if inet_family == "both" or "inet6":
+                iface_txt_block.extend([
+                    f"iface {ifname} inet6 dhcp",
+                    f"    hostname {get_hostname()}"
+                ])
+
             self.conf[ifname] = _preprocess_interface_config(
-                f"auto {ifname}\niface {ifname} inet dhcp"
+                "\n".join(iface_txt_block)
             )
         else:
             raise InterfaceNotFoundError(f"no existing config for {ifname}")
 
     def set_dhcp(self, ifname: str) -> None:
+        """Set interface IPv4 method to DHCP.
+
+        If interface does not exist, a new one will be created with IPv4 & IPv6
+        both set to DHCP. Otherwise IPv6 conf will not be changed.
+        """
         if ifname not in self.conf:
-            self.gen_default_if_config(ifname)
+            self.gen_default_if_config(ifname, "both")
+            #self.write()
+            return
+        ifconf_data = _list_to_data(self.conf[ifname])
+        for index, stanza in enumerate(ifconf_data):
+            if "family" in stanza and stanza["family"] == "inet":
+                ifconf_data[index]["method"] = "dhcp"
+                ifconf_data[index]["options"] = _strip_static_opts(
+                    stanza["options"],
+                )
+                break
+        self.conf[ifname] = _data_to_list(ifconf_data)
+        #self.write()
 
-        ifconf = _preprocess_interface_config("\n".join(self.conf[ifname]))
-        ifconf[1] = f"iface {ifname} inet dhcp"
-        self.conf[ifname] = ifconf
-
-        self.write()
 
     def set_manual(self, ifname: str) -> None:
+        """Set interface IPv4 method to manual.
+
+        If interface does not exist, a new one will be created with IPv4 & IPv6
+        both set to DHCP. Otherwise IPv6 conf will not be changed.
+        """
         if ifname not in self.conf:
             self.gen_default_if_config(ifname)
-
-        ifconf = _preprocess_interface_config("\n".join(self.conf[ifname]))
-        ifconf[1] = f"iface {ifname} inet manual"
-        self.conf[ifname] = ifconf
-
-        self.write()
+        ifconf_data = _list_to_data(self.conf[ifname])
+        for index, stanza in enumerate(ifconf_data):
+            if "family" in stanza and stanza["family"] == "inet":
+                ifconf_data[index]["method"] = "manual"
+                ifconf_data[index]["options"] = _strip_static_opts(
+                    stanza["options"],
+                )
+                break
+        self.conf[ifname] = _data_to_list(ifconf_data)
+        #self.write()
 
     def set_static(
         self,
@@ -235,29 +532,48 @@ class NetworkInterfaces:
         gateway: str | None = None,
         nameservers: list[str] | None = None,
     ) -> None:
+        """Set interface IPv4 method to static.
+
+        Stanza option indents will be (re)set to 4 spaces.
+
+        If interface does not exist, a new one will be created with IPv4 & IPv6
+        set to static & DHCP respectively. Otherwise IPv6 conf will not be
+        changed.
+        """
         if ifname not in self.conf:
-            self.gen_default_if_config(ifname)
-
-        ifconf = _preprocess_interface_config("\n".join(self.conf[ifname]))
-        ifconf[1] = f"iface {ifname} inet static"
-
-        ifconf.extend([f"    address {addr}", f"    netmask {netmask}"])
-
-        if gateway:
-            ifconf.append(f"    gateway {gateway}")
+            self.gen_default_if_config(ifname, "both")
+        ifconf_block = _list_to_data(self.conf[ifname])
+        new_conf_dict = {
+            "address": addr,
+            "netmask": netmask,
+            "gateway": gateway,
+            "dns-nameservers": None,
+        }
         if nameservers:
-            joined_nameservers = " ".join(nameservers)
-            ifconf.append(f"    dns-nameservers {joined_nameservers}")
+            # note that both ipv4 & ipv6 IPs are valid regardless of iface
+            # inet family
+            new_conf_dict["dns-nameservers"] = [
+                ns for ns in nameservers if _valid_ip(ns)
+            ]
 
-        self.conf[ifname] = ifconf
-        self.write()
+        for index, stanza in enumerate(ifconf_block):
+            if "family" in stanza and stanza["family"] == "inet":
+                ifconf_block[index]["method"] = "static"
+                ifconf_block[index]["options"] = _merge_iface_options(
+                    stanza["options"], new_conf_dict,
+                )
+        self.conf[ifname] = _data_to_list(ifconf_block)
+        #self.write()
 
-    def get_if_conf(self, ifname: str, key: str) -> list[str] | None:
+    def get_if_conf(
+        self, ifname: str, key: str, inet_family = "inet",
+    ) -> list[str] | None:
         if ifname in self.conf:
-            for line in self.conf[ifname]:
-                line_list = line.strip().split()
-                if line_list[0] == key:
-                    return line_list[1:]
+            for stanza in _list_to_data(self.conf[ifname]):
+                if "family" in stanza and stanza["family"] == inet_family:
+                    for option in stanza["options"]:
+                        if option[0] == key:
+                            return option[1:]
         return None
 
     def get_nameservers(self, ifname: str) -> list[str] | None:
@@ -274,6 +590,9 @@ class NetworkInterfaces:
         if addr:
             return addr[0]
         return None
+
+    def __repr__(self) -> str:
+        return json.dumps(self.conf, indent=4)
 
 
 def _parse_resolv(path: str) -> list[str]:
@@ -296,12 +615,12 @@ def get_nameservers(ifname: str) -> list[str]:
 
     # resolvconf (dhcp)
     path = "/etc/resolvconf/run/interface"
-    if os.path.exists(path):
+    if exists(path):
         for f in os.listdir(path):
             if not f.startswith(ifname) or f.endswith(".inet"):
                 continue
 
-            nameservers = _parse_resolv(os.path.join(path, f))
+            nameservers = _parse_resolv(join(path, f))
             if nameservers:
                 return nameservers
 
@@ -310,10 +629,10 @@ def get_nameservers(ifname: str) -> list[str]:
 
 
 def ifup(ifname: str, force: bool = False) -> str:
-
+    # force will add the '--force' switch and ignore errors
     ifup_args = ["/usr/sbin/ifup"]
     if force:
-        ifup_args.extend(["--force", "--ignore-errors"])
+        ifup_args.append("--force")
     ifup_args.append(ifname)
     log.debug("running: %s", " ".join(ifup_args))
     ifup_cmd = subprocess.run(ifup_args, capture_output=True, text=True)
@@ -333,11 +652,10 @@ def ifup(ifname: str, force: bool = False) -> str:
 
 
 def ifdown(ifname: str, force: bool = False) -> str:
-
+    # force will add the '--force' switch and ignore errors
     ifdown_args = ["/usr/sbin/ifdown"]
     if force:
-        ifdown_args.extend(["--force", "--ignore-errors"])
-
+        ifdown_args.append("--force")
     ifdown_args.append(ifname)
     log.debug("running: %s", " ".join(ifdown_args))
     ifdown_cmd = subprocess.run(ifdown_args, capture_output=True, text=True)
@@ -350,19 +668,18 @@ def ifdown(ifname: str, force: bool = False) -> str:
     if not force and ifdown_cmd.returncode != 0:
         log.error("failed to bring down %r: %s", ifname, ifdown_cmd.stderr)
         raise BadIfConfigError(
-                f"failed to bring down interface {ifname!r}"
-                f" error: {ifdown_cmd.stderr!r}"
-            )
+            f"failed to bring down interface {ifname!r} error:"
+            f" {ifdown_cmd.stderr!r}"
+        )
     return ifdown_cmd.stderr
 
 
-def unconfigure_if(ifname: str) -> str | None:
-    try:
-        ifdown(ifname)
-    except Exception as e:
-        log.exception("unconfigure_if failed for %s", ifname)
-        return str(e)
-
+def unconfigure_if(ifname: str, force: bool = False) -> str | None:
+    err = ifdown(ifname, force=force)
+    if err and not force:
+        log.error("unconfigure_if failed for %s", ifname)
+        return err
+    
     interfaces = NetworkInterfaces()
     interfaces.read()
     backup_interfaces = interfaces.duplicate()
@@ -372,9 +689,20 @@ def unconfigure_if(ifname: str) -> str | None:
         subprocess.check_output(
             ["/usr/sbin/ip", "addr", "flush", "dev", ifname],
         )
+        fail = False
     except (subprocess.CalledProcessError, FileNotFoundError, OSError) as e:
+        if force:
+            fail = True
+            pass
         return str(e)
 
+    if fail:
+        for arg in ("addr", "route"):
+            cmd = ["/usr/sbin/ip", arg, "dev", ifname]
+            ip_proc = subprocess.run(cmd, capture_output=True, text=True)
+            if ip_proc.returncode != 0:
+                # bail now - even with force - something is very wrong!
+                raise BadIfConfigError(ip_proc.stdout)
     try:
         ifup(ifname)
     except Exception as e:
@@ -387,15 +715,15 @@ def unconfigure_if(ifname: str) -> str | None:
 def set_static(
     ifname: str, addr: str, netmask: str, gateway: str, nameservers: list[str]
 ) -> str | None:
+    """Set a static IPv4 for 'ifname'."""
     try:
         addr = str(IPv4.parse(addr))
         netmask = str(IPv4.parse(netmask))
         gateway = str(IPv4.parse(gateway))
-        nameservers = [
-            str(IPv4.parse(nameserver)) for nameserver in nameservers
-        ]
+        # note that IPv6 addresses are valid as IPv4 nameservers
+        nameservers = [_valid_ip(ns) for ns in nameservers]
 
-        ifdown(ifname, True)
+        ifdown(ifname, force=True)
 
         interfaces = NetworkInterfaces()
         interfaces.read()
@@ -481,10 +809,10 @@ def get_ipv6conf(ifname: str) -> tuple[str | None, str | None]:
     return (None, None)
 
 
-def get_ifmethod(ifname: str) -> str | None:
+def get_ifmethod(ifname: str, inet_family: str = "inet") -> str | None:
     interfaces = NetworkInterfaces()
     interfaces.read()
-    conf_line = interfaces.get_if_conf(ifname, "iface")
+    conf_line = interfaces.get_method(ifname, inet_family)
     if conf_line:
         return conf_line[3]
     return None
