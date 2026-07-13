@@ -467,12 +467,12 @@ class NetworkInterfaces:
         """
         if ifname.startswith("e"):
             iface_txt_block = [f"auto {ifname}"]
-            if inet_family == "both" or "inet":
+            if inet_family in ("both", "inet"):
                 iface_txt_block.extend([
                     f"iface {ifname} inet dhcp",
                     f"    hostname {get_hostname()}"
                 ])
-            if inet_family == "both" or "inet6":
+            if inet_family in ("both", "inet6"):
                 iface_txt_block.extend([
                     f"iface {ifname} inet6 dhcp",
                     f"    hostname {get_hostname()}"
