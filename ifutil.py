@@ -816,7 +816,7 @@ def get_ipv6conf(ifname: str) -> tuple[str | None, str | None]:
 def get_ifmethod(ifname: str, inet_family: str = "inet") -> str | None:
     interfaces = NetworkInterfaces()
     interfaces.read()
-    conf_line = interfaces.get_method(ifname, inet_family)
-    if conf_line:
-        return conf_line[3]
+    method = interfaces.get_method(ifname, inet_family)
+    if method:
+        return method
     return None
