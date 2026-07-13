@@ -67,5 +67,30 @@ class Conf:
     def set_default_nic(self, ifname: str) -> None:
         self.default_nic = ifname
 
+        new_line = f"default_nic {ifname}\n"
+        lines: list[str] = []
+        replaced = False
+
+        if os.path.exists(self.conf_file):
+            with open(self.conf_file) as fob:
+                for line in fob:
+                    stripped = line.strip()
+                    if (
+                        stripped
+                        and not stripped.startswith("#")
+                        and stripped.split()[0] == "default_nic"
+                    ):
+                        # update existing setting in place
+                        lines.append(new_line)
+                        replaced = True
+                    else:
+                        # preserve comments, blank lines and other settings
+                        lines.append(line)
+
+        if not replaced:
+            if lines and not lines[-1].endswith("\n"):
+                lines[-1] += "\n"
+            lines.append(new_line)
+
         with open(self.conf_file, "w") as fob:
-            fob.write(f"default_nic {ifname}\n")
+            fob.writelines(lines)
