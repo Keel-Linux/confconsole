@@ -3,7 +3,6 @@
 # Copyright (c) 2020 TurnKey GNU/Linux <admin@turnkeylinux.org>
 # - all rights reserved
 
-import re
 import os
 
 
@@ -40,7 +39,9 @@ class Conf:
                 if not line or line.startswith("#"):
                     continue
 
-                op, val = re.split(r"\s+", line, 1)
+                parts = line.split(maxsplit=1)
+                op = parts[0]
+                val = parts[1] if len(parts) > 1 else ""
                 if op == "default_nic":
                     self.default_nic = val
                 elif op == "publicip_cmd":
