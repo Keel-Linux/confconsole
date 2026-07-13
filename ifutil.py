@@ -544,12 +544,16 @@ class NetworkInterfaces:
         if ifname not in self.conf:
             self.gen_default_if_config(ifname, "both")
         ifconf_block = _list_to_data(self.conf[ifname])
-        new_conf_dict = {
+        # address & netmask are always set; gateway & dns-nameservers are
+        # optional. Only include the optional keys when supplied - combined
+        # with stripping the existing static options below, this ensures an
+        # omitted/cleared field is actually removed rather than retained.
+        new_conf_dict: dict[str, str | list[str] | None] = {
             "address": addr,
             "netmask": netmask,
-            "gateway": gateway,
-            "dns-nameservers": None,
         }
+        if gateway:
+            new_conf_dict["gateway"] = gateway
         if nameservers:
             # note that both ipv4 & ipv6 IPs are valid regardless of iface
             # inet family
@@ -560,8 +564,11 @@ class NetworkInterfaces:
         for index, stanza in enumerate(ifconf_block):
             if "family" in stanza and stanza["family"] == "inet":
                 ifconf_block[index]["method"] = "static"
+                # drop any existing address/netmask/gateway/dns-nameservers
+                # first so that omitted optional fields don't linger
+                stripped = _strip_static_opts(stanza["options"])
                 ifconf_block[index]["options"] = _merge_iface_options(
-                    stanza["options"], new_conf_dict,
+                    stripped, new_conf_dict,
                 )
         self.conf[ifname] = _data_to_list(ifconf_block)
         #self.write()
@@ -721,7 +728,9 @@ def set_static(
     try:
         addr = str(IPv4.parse(addr))
         netmask = str(IPv4.parse(netmask))
-        gateway = str(IPv4.parse(gateway))
+        # gateway is optional (e.g. a secondary NIC or an isolated network);
+        # only parse/set it when actually provided
+        gw = str(IPv4.parse(gateway)) if gateway else None
         # note that IPv6 addresses are valid as IPv4 nameservers
         nameservers = [_valid_ip(ns) for ns in nameservers]
 
@@ -732,7 +741,7 @@ def set_static(
         backup_interfaces = interfaces.duplicate()
 
         try:
-            interfaces.set_static(ifname, addr, netmask, gateway, nameservers)
+            interfaces.set_static(ifname, addr, netmask, gw, nameservers)
             interfaces.write()
             sleep(0.5)
         except Exception as e:
