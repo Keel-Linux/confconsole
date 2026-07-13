@@ -51,7 +51,7 @@ class ConfconsoleError(Exception):
 
 def fatal(msg: str) -> NoReturn:
     msg = f"Error: {msg}"
-    log.exception(msg)
+    log.error(msg)
     print(msg, file=sys.stderr)
     sys.exit(1)
 
@@ -59,7 +59,7 @@ def fatal(msg: str) -> NoReturn:
 def usage(msg: str | getopt.GetoptError = "") -> NoReturn:
     if msg:
         msg = f"Error: {msg}"
-        log.exception(msg)
+        log.error(msg)
         print(msg, file=sys.stderr)
 
     print(f"Syntax: {sys.argv[0]}", file=sys.stderr)
@@ -494,7 +494,7 @@ class TurnkeyConsole:
         # if no interfaces at all - display error and go to advanced
         if len(self._get_filtered_ifnames()) == 0:
             error = "No network adapters detected"
-            log.exception(error)
+            log.error(error)
             if not self.advanced_enabled:
                 fatal(error)
 
@@ -505,7 +505,7 @@ class TurnkeyConsole:
         ifname = self._get_default_nic()
         if not ifname:
             error = "Networking is not yet configured"
-            log.exception(error)
+            log.error(error)
             if not self.advanced_enabled:
                 fatal(error)
 
@@ -675,20 +675,20 @@ class TurnkeyConsole:
                 errors.append("Duplicate nameservers specified")
 
             if errors:
-                log.exception(f"{log_valid_msg} failed: {', '.join(errors)}")
+                log.error(f"{log_valid_msg} failed: {', '.join(errors)}")
                 return errors
 
             if gateway:
                 if not ipaddr.is_legal_ip(gateway):
                     error = f"Invalid gateway: {gateway}"
-                    log.exception(f"{log_valid_msg} failed: {error}")
+                    log.error(f"{log_valid_msg} failed: {error}")
                     return [error]
                 else:
                     iprange = ipaddr.IPRange(addr, netmask)
                     if gateway not in iprange:
                         error = \
                             f"Gateway ({gateway}) not in IP range ({iprange})"
-                        log.exception(f"{log_valid_msg} failed: {error}")
+                        log.error(f"{log_valid_msg} failed: {error}")
                         return [error]
 
             return []
