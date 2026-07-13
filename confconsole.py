@@ -16,6 +16,7 @@ import sys
 import subprocess
 from subprocess import CalledProcessError
 import getopt
+import ipaddress
 import shlex
 from string import Template
 from io import StringIO
@@ -678,18 +679,32 @@ class TurnkeyConsole:
                 log.error(f"{log_valid_msg} failed: {', '.join(errors)}")
                 return errors
 
+            # Final sanity check via the stdlib ipaddress module. Unlike
+            # is_legal_ip() this rejects a syntactically-valid but nonsensical
+            # (non-contiguous) netmask such as 255.0.255.0, and confirms the
+            # gateway falls within the resulting network.
+            try:
+                network = ipaddress.IPv4Network(
+                    f"{addr}/{netmask}", strict=False
+                )
+            except ValueError as e:
+                error = f"Invalid address/netmask: {e}"
+                log.error(f"{log_valid_msg} failed: {error}")
+                return [error]
+
             if gateway:
-                if not ipaddr.is_legal_ip(gateway):
-                    error = f"Invalid gateway: {gateway}"
+                try:
+                    gw = ipaddress.IPv4Address(gateway)
+                except ValueError as e:
+                    error = f"Invalid gateway: {e}"
                     log.error(f"{log_valid_msg} failed: {error}")
                     return [error]
-                else:
-                    iprange = ipaddr.IPRange(addr, netmask)
-                    if gateway not in iprange:
-                        error = \
-                            f"Gateway ({gateway}) not in IP range ({iprange})"
-                        log.error(f"{log_valid_msg} failed: {error}")
-                        return [error]
+                if gw not in network:
+                    error = (
+                        f"Gateway ({gateway}) not in network ({network})"
+                    )
+                    log.error(f"{log_valid_msg} failed: {error}")
+                    return [error]
 
             return []
 
