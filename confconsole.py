@@ -38,7 +38,7 @@ PLUGIN_PATH = os.path.join(
     os.path.dirname(os.path.realpath(__file__)), "plugins.d"
 )
 
-handler = JournalHandler()
+handler = JournalHandler(SYSLOG_IDENTIFIER="confconsole")
 handler.setFormatter(logging.Formatter("%(name)s: %(message)s"))
 logging.getLogger().setLevel(logging.DEBUG)
 logging.getLogger().addHandler(handler)
@@ -415,9 +415,9 @@ class TurnkeyConsole:
         for ifname in self._get_filtered_ifnames():
             log.debug("found ifname: %s", ifname)
             addr = ifutil.get_ipconf(ifname)[0]
-            log.debug("ifname '%s' addr: %s", addr)
+            log.debug("ifname '%s' addr: %s", ifname, addr)
             ifmethod = ifutil.get_ifmethod(ifname)
-            log.debug("ifname '%s' ifmethod: %s", ifmethod)
+            log.debug("ifname '%s' ifmethod: %s", ifname, ifmethod)
 
             if addr:
                 desc = addr
