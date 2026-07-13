@@ -120,8 +120,9 @@ def _list_to_data(lines: list[str]) -> list[str | dict[str, str | list[str]]]:
                     raise BadIfConfigError(
                         f"Invalid iface header: '{iface_header}'",
                     )
-                family, method = iface_header.split()[2:4]
+                iface, family, method = iface_header.split()[1:4]
                 current = {
+                    "iface": iface,
                     "family": family,
                     "method": method,
                     "options": [],
