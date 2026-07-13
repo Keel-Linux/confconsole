@@ -413,8 +413,11 @@ class TurnkeyConsole:
     def _get_netmenu(self) -> list[tuple[str, str]]:
         menu = []
         for ifname in self._get_filtered_ifnames():
+            log.debug("found ifname: %s", ifname)
             addr = ifutil.get_ipconf(ifname)[0]
+            log.debug("ifname '%s' addr: %s", addr)
             ifmethod = ifutil.get_ifmethod(ifname)
+            log.debug("ifname '%s' ifmethod: %s", ifmethod)
 
             if addr:
                 desc = addr
@@ -646,6 +649,7 @@ class TurnkeyConsole:
     def _ifconf_staticip(self) -> str:
         log_msg = "Applying static ip"
         log.info(log_msg)
+
         def _validate(
             addr: str, netmask: str, gateway: str, nameservers: list[str]
         ) -> list[str]:
@@ -697,6 +701,14 @@ class TurnkeyConsole:
         try:
             addr, netmask, gateway, nameservers = ifutil.get_ipconf(
                 self.ifname, True
+            )
+            log.debug(
+                "ifname: %s; addr: %s; netmask: %s; gateway: %s; nameservers: %s",
+                self.ifname,
+                addr,
+                netmask,
+                gateway,
+                nameservers,
             )
         except CalledProcessError:
             warnings.append(
@@ -759,7 +771,9 @@ class TurnkeyConsole:
             retcode, input = self.console.form(
                 "Network settings", text, fields
             )
-
+            log.debug("static ip fields: %s", fields)
+            log.debug("static ip input: %s", input)
+            log.debug("static ip retcode: %s", retcode)
             if retcode is not self.OK:
                 break
 
