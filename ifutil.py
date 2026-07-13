@@ -685,6 +685,7 @@ def unconfigure_if(ifname: str, force: bool = False) -> str | None:
     interfaces.read()
     backup_interfaces = interfaces.duplicate()
     interfaces.set_manual(ifname)
+    interfaces.write()
 
     try:
         subprocess.check_output(
@@ -732,6 +733,7 @@ def set_static(
 
         try:
             interfaces.set_static(ifname, addr, netmask, gateway, nameservers)
+            interfaces.write()
             sleep(0.5)
         except Exception as e:
             backup_interfaces.write()
@@ -758,6 +760,7 @@ def set_dhcp(ifname: str) -> str | None:
         backup_interfaces = interfaces.duplicate()
         try:
             interfaces.set_dhcp(ifname)
+            interfaces.write()
         except Exception as e:
             backup_interfaces.write()
             raise e
