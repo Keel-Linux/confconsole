@@ -693,18 +693,18 @@ def unconfigure_if(ifname: str, force: bool = False) -> str | None:
         )
         fail = False
     except (subprocess.CalledProcessError, FileNotFoundError, OSError) as e:
-        if force:
-            fail = True
-            pass
-        return str(e)
+        if not force:
+            return str(e)
+        # forcing: fall through and try flushing addr + route explicitly
+        fail = True
 
     if fail:
         for arg in ("addr", "route"):
-            cmd = ["/usr/sbin/ip", arg, "dev", ifname]
+            cmd = ["/usr/sbin/ip", arg, "flush", "dev", ifname]
             ip_proc = subprocess.run(cmd, capture_output=True, text=True)
             if ip_proc.returncode != 0:
                 # bail now - even with force - something is very wrong!
-                raise BadIfConfigError(ip_proc.stdout)
+                raise BadIfConfigError(ip_proc.stderr)
     try:
         ifup(ifname)
     except Exception as e:
