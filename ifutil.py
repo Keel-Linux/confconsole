@@ -492,7 +492,6 @@ class NetworkInterfaces:
         """
         if ifname not in self.conf:
             self.gen_default_if_config(ifname, "both")
-            #self.write()
             return
         ifconf_data = _list_to_data(self.conf[ifname])
         for index, stanza in enumerate(ifconf_data):
@@ -503,7 +502,6 @@ class NetworkInterfaces:
                 )
                 break
         self.conf[ifname] = _data_to_list(ifconf_data)
-        #self.write()
 
 
     def set_manual(self, ifname: str) -> None:
@@ -523,7 +521,6 @@ class NetworkInterfaces:
                 )
                 break
         self.conf[ifname] = _data_to_list(ifconf_data)
-        #self.write()
 
     def set_static(
         self,
@@ -571,7 +568,6 @@ class NetworkInterfaces:
                     stripped, new_conf_dict,
                 )
         self.conf[ifname] = _data_to_list(ifconf_block)
-        #self.write()
 
     def get_if_conf(
         self, ifname: str, key: str, inet_family = "inet",
