@@ -3,7 +3,6 @@
 # Copyright (c) 2020 TurnKey GNU/Linux <admin@turnkeylinux.org>
 # - all rights reserved
 
-import re
 import os
 
 
@@ -40,7 +39,9 @@ class Conf:
                 if not line or line.startswith("#"):
                     continue
 
-                op, val = re.split(r"\s+", line, 1)
+                parts = line.split(maxsplit=1)
+                op = parts[0]
+                val = parts[1] if len(parts) > 1 else ""
                 if op == "default_nic":
                     self.default_nic = val
                 elif op == "publicip_cmd":
@@ -67,5 +68,30 @@ class Conf:
     def set_default_nic(self, ifname: str) -> None:
         self.default_nic = ifname
 
+        new_line = f"default_nic {ifname}\n"
+        lines: list[str] = []
+        replaced = False
+
+        if os.path.exists(self.conf_file):
+            with open(self.conf_file) as fob:
+                for line in fob:
+                    stripped = line.strip()
+                    if (
+                        stripped
+                        and not stripped.startswith("#")
+                        and stripped.split()[0] == "default_nic"
+                    ):
+                        # update existing setting in place
+                        lines.append(new_line)
+                        replaced = True
+                    else:
+                        # preserve comments, blank lines and other settings
+                        lines.append(line)
+
+        if not replaced:
+            if lines and not lines[-1].endswith("\n"):
+                lines[-1] += "\n"
+            lines.append(new_line)
+
         with open(self.conf_file, "w") as fob:
-            fob.write(f"default_nic {ifname}\n")
+            fob.writelines(lines)

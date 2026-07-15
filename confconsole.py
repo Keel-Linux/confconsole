@@ -16,6 +16,7 @@ import sys
 import subprocess
 from subprocess import CalledProcessError
 import getopt
+import ipaddress
 import shlex
 from string import Template
 from io import StringIO
@@ -38,7 +39,7 @@ PLUGIN_PATH = os.path.join(
     os.path.dirname(os.path.realpath(__file__)), "plugins.d"
 )
 
-handler = JournalHandler()
+handler = JournalHandler(SYSLOG_IDENTIFIER="confconsole")
 handler.setFormatter(logging.Formatter("%(name)s: %(message)s"))
 logging.getLogger().setLevel(logging.DEBUG)
 logging.getLogger().addHandler(handler)
@@ -51,7 +52,7 @@ class ConfconsoleError(Exception):
 
 def fatal(msg: str) -> NoReturn:
     msg = f"Error: {msg}"
-    log.exception(msg)
+    log.error(msg)
     print(msg, file=sys.stderr)
     sys.exit(1)
 
@@ -59,7 +60,7 @@ def fatal(msg: str) -> NoReturn:
 def usage(msg: str | getopt.GetoptError = "") -> NoReturn:
     if msg:
         msg = f"Error: {msg}"
-        log.exception(msg)
+        log.error(msg)
         print(msg, file=sys.stderr)
 
     print(f"Syntax: {sys.argv[0]}", file=sys.stderr)
@@ -413,8 +414,11 @@ class TurnkeyConsole:
     def _get_netmenu(self) -> list[tuple[str, str]]:
         menu = []
         for ifname in self._get_filtered_ifnames():
+            log.debug("found ifname: %s", ifname)
             addr = ifutil.get_ipconf(ifname)[0]
+            log.debug("ifname '%s' addr: %s", ifname, addr)
             ifmethod = ifutil.get_ifmethod(ifname)
+            log.debug("ifname '%s' ifmethod: %s", ifname, ifmethod)
 
             if addr:
                 desc = addr
@@ -491,7 +495,7 @@ class TurnkeyConsole:
         # if no interfaces at all - display error and go to advanced
         if len(self._get_filtered_ifnames()) == 0:
             error = "No network adapters detected"
-            log.exception(error)
+            log.error(error)
             if not self.advanced_enabled:
                 fatal(error)
 
@@ -502,7 +506,7 @@ class TurnkeyConsole:
         ifname = self._get_default_nic()
         if not ifname:
             error = "Networking is not yet configured"
-            log.exception(error)
+            log.error(error)
             if not self.advanced_enabled:
                 fatal(error)
 
@@ -646,6 +650,7 @@ class TurnkeyConsole:
     def _ifconf_staticip(self) -> str:
         log_msg = "Applying static ip"
         log.info(log_msg)
+
         def _validate(
             addr: str, netmask: str, gateway: str, nameservers: list[str]
         ) -> list[str]:
@@ -671,21 +676,35 @@ class TurnkeyConsole:
                 errors.append("Duplicate nameservers specified")
 
             if errors:
-                log.exception(f"{log_valid_msg} failed: {', '.join(errors)}")
+                log.error(f"{log_valid_msg} failed: {', '.join(errors)}")
                 return errors
 
+            # Final sanity check via the stdlib ipaddress module. Unlike
+            # is_legal_ip() this rejects a syntactically-valid but nonsensical
+            # (non-contiguous) netmask such as 255.0.255.0, and confirms the
+            # gateway falls within the resulting network.
+            try:
+                network = ipaddress.IPv4Network(
+                    f"{addr}/{netmask}", strict=False
+                )
+            except ValueError as e:
+                error = f"Invalid address/netmask: {e}"
+                log.error(f"{log_valid_msg} failed: {error}")
+                return [error]
+
             if gateway:
-                if not ipaddr.is_legal_ip(gateway):
-                    error = f"Invalid gateway: {gateway}"
-                    log.exception(f"{log_valid_msg} failed: {error}")
+                try:
+                    gw = ipaddress.IPv4Address(gateway)
+                except ValueError as e:
+                    error = f"Invalid gateway: {e}"
+                    log.error(f"{log_valid_msg} failed: {error}")
                     return [error]
-                else:
-                    iprange = ipaddr.IPRange(addr, netmask)
-                    if gateway not in iprange:
-                        error = \
-                            f"Gateway ({gateway}) not in IP range ({iprange})"
-                        log.exception(f"{log_valid_msg} failed: {error}")
-                        return [error]
+                if gw not in network:
+                    error = (
+                        f"Gateway ({gateway}) not in network ({network})"
+                    )
+                    log.error(f"{log_valid_msg} failed: {error}")
+                    return [error]
 
             return []
 
@@ -697,6 +716,14 @@ class TurnkeyConsole:
         try:
             addr, netmask, gateway, nameservers = ifutil.get_ipconf(
                 self.ifname, True
+            )
+            log.debug(
+                "ifname: %s; addr: %s; netmask: %s; gateway: %s; nameservers: %s",
+                self.ifname,
+                addr,
+                netmask,
+                gateway,
+                nameservers,
             )
         except CalledProcessError:
             warnings.append(
@@ -759,7 +786,9 @@ class TurnkeyConsole:
             retcode, input = self.console.form(
                 "Network settings", text, fields
             )
-
+            log.debug("static ip fields: %s", fields)
+            log.debug("static ip input: %s", input)
+            log.debug("static ip retcode: %s", retcode)
             if retcode is not self.OK:
                 break
 
