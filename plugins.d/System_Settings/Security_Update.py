@@ -7,4 +7,4 @@ def run():
     try:
         check_call(["turnkey-install-security-updates"])
     except CalledProcessError:
-        console.msgbox("An error occured while running security updates!")
+        console.msgbox("An error occurred while running security updates!")
