@@ -25,8 +25,11 @@ Main screen and basic functionality
 
 The main screen of Confconsole provides the following information:
 
-- The currently bound IP address/es
-- The listening services the user may connect to over the network
+- The currently bound IP address/es, the global IPv6 address first, then
+  the IPv4 address (either alone when the adapter has only one)
+- The listening services the user may connect to over the network, as URLs
+  for each address (``https://[2001:db8:1::10]:12321``, then
+  ``https://192.0.2.10:12321``)
 
 .. image:: ./docs/images/00_confconsole_core_main.png
 
@@ -62,6 +65,7 @@ The Advanced menu provides the below functionality in all appliances
   - Setting a static IPv6 address (address/prefix, gateway, name servers)
   - Setting a static IPv4 address
   - Requesting DHCP
+  - Choosing the adapter whose addresses the main screen shows
 
 - `Let's Encrypt`_:
 

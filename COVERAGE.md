@@ -103,6 +103,22 @@ would report about 15 percent and the threshold could not be honoured.
 It joins the measured set when plan item 5 below is executed; until then
 the new dialog code is tested but its number is not part of the gate.
 
+## Measured on 2026-09-26 with the IPv6-first usage screen
+
+| File | Tests | Stmts | Branches | Cover |
+|------|-------|-------|----------|-------|
+| ifutil.py | 155 as above (unchanged file) | 551 | 230 | 100 percent, 0 missed, 0 partial |
+| confconsole.py | 57 in tests/test_confconsole_ifconf6.py and tests/test_confconsole_usage.py: `format_fields`, `render_usage_line`, `render_usage`, `ipv6_lines`, `describe_interface`, `_ifconf_staticipv6`, `_get_netmenu`, `_get_ifconfmenu`, `_get_ifconftext`, `usage` | 646 | 236 | 38 percent measured locally with `--source=ifutil,confconsole`; the touched and new functions have 0 missed lines and 0 partial branches; the 4 partial branches left are in `_get_ifconftext` (untouched) |
+
+Total 212 tests. Threshold in the caller: 100, unchanged, for the measured
+package (`ifutil`). confconsole.py stays out of `package:` for the reason
+given above; the number it would report went from about 15 percent to 38
+percent with the usage screen tests (`usage()` runs with
+`subprocess.run`, `conf.path`, `netinfo.get_hostname` and the address
+readers stubbed). The shared dialog fixtures (`FakeConsole`, `tc`,
+`net_stubs`) moved to `tests/conftest.py` so every confconsole test file
+uses the same stubbing.
+
 ## Plan to reach 90 percent per file
 
 Priority order (size: small under 30 lines of test, medium under 150,
@@ -143,7 +159,11 @@ nameserver `2001:db8::53`.
    class then stays thin. `_ifconf_staticipv6` (plan 04 section 3.2) was
    written that way on 2026-09-26, with the stubbing in place in
    `tests/conftest.py` and `tests/test_confconsole_ifconf6.py` as the
-   pattern for the rest of the file.
+   pattern for the rest of the file. The usage template rendering
+   followed the same day (`render_usage`, `render_usage_line`,
+   `describe_interface`, pure functions; `usage()` tested with stubs).
+   Left: `_ifconf_staticip._validate`, `_validip`, `_get_default_nic`,
+   `_get_filtered_ifnames`, `_get_advmenu`, the installer and the loop.
 6. `plugins.d` Python, smallest first: Security_Update, tzdata,
    add-water-client, locales, example, Confconsole_auto_start, keyboard,
    cert_auto_renew (small each); apt, add-water-srv (request each route

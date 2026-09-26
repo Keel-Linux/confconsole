@@ -169,3 +169,86 @@ iface eth0 inet6 static
     gateway 2001:db8:1::1
     dns-nameservers 2001:db8::53
 """
+
+
+class FakeConsole:
+    """Answers form/yesno/msgbox from scripted queues, records calls."""
+
+    OK = "ok"
+
+    def __init__(self, forms=(), yesno=()):
+        self.forms = list(forms)
+        self.yesnos = list(yesno)
+        self.calls = []
+
+    def form(self, title, text, fields, **kwargs):
+        self.calls.append(("form", text, fields, kwargs))
+        return self.forms.pop(0)
+
+    def yesno(self, text, autosize=False):
+        self.calls.append(("yesno", text))
+        return self.yesnos.pop(0)
+
+    def msgbox(self, title, text, **kwargs):
+        self.calls.append(("msgbox", title, text))
+        return self.OK
+
+    def infobox(self, text):
+        self.calls.append(("infobox", text))
+        return self.OK
+
+    def menu(self, *args, **kwargs):
+        raise AssertionError("menu must not be opened by these tests")
+
+
+@pytest.fixture
+def tc(confconsole):
+    """A TurnkeyConsole bound to eth0 with a fake console, no __init__."""
+
+    def _make(forms=(), yesno=()):
+        console = object.__new__(confconsole.TurnkeyConsole)
+        console.console = FakeConsole(forms, yesno)
+        console.ifname = "eth0"
+        return console
+
+    return _make
+
+
+@pytest.fixture
+def net_stubs(confconsole, monkeypatch):
+    """Stub the ifutil readers the menus use; return a dict to steer them.
+
+    `real_get_ipv6conf` keeps the unstubbed function for a test that wants
+    the real preference order with `ip` output replaced instead."""
+    state = {
+        "ifnames": ["eth0"],
+        "ipconf": (None, None, None, []),
+        "ipv6conf": (None, None),
+        "methods": {"inet": None, "inet6": None},
+        "default_nic": "eth0",
+        "real_get_ipv6conf": confconsole.ifutil.get_ipv6conf,
+    }
+    monkeypatch.setattr(
+        confconsole.TurnkeyConsole,
+        "_get_filtered_ifnames",
+        classmethod(lambda cls: list(state["ifnames"])),
+    )
+    monkeypatch.setattr(
+        confconsole.TurnkeyConsole,
+        "_get_default_nic",
+        classmethod(lambda cls: state["default_nic"]),
+    )
+    monkeypatch.setattr(
+        confconsole.ifutil,
+        "get_ipconf",
+        lambda ifname, error=False: state["ipconf"],
+    )
+    monkeypatch.setattr(
+        confconsole.ifutil, "get_ipv6conf", lambda ifname: state["ipv6conf"]
+    )
+    monkeypatch.setattr(
+        confconsole.ifutil,
+        "get_ifmethod",
+        lambda ifname, inet_family="inet": state["methods"][inet_family],
+    )
+    return state

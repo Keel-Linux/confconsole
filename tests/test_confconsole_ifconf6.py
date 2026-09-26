@@ -1,10 +1,11 @@
 """The static IPv6 dialog and the IPv6 lines of the networking menu.
 
-No dialog is launched: TurnkeyConsole is instantiated without __init__,
-its `console` is a scripted fake that records every call and answers
-from a queue, and the ifutil functions the dialog calls are stubs that
-record their arguments. The dialog must hold no logic beyond collecting
-fields and calling ifutil, so these tests check exactly that.
+No dialog is launched: TurnkeyConsole is instantiated without __init__
+(the `tc` fixture in conftest.py), its `console` is a scripted fake that
+records every call and answers from a queue, and the ifutil functions the
+dialog calls are stubs that record their arguments. The dialog must hold
+no logic beyond collecting fields and calling ifutil, so these tests check
+exactly that.
 """
 
 import pytest
@@ -14,49 +15,6 @@ from conftest import INET6_ONLY, STATIC_V4, UNCONFIGURED
 ADDR = "2001:db8:1::10/64"
 GW = "fe80::1"
 NS = "2001:db8::53"
-
-
-class FakeConsole:
-    """Answers form/yesno/msgbox from scripted queues, records calls."""
-
-    OK = "ok"
-
-    def __init__(self, forms=(), yesno=()):
-        self.forms = list(forms)
-        self.yesnos = list(yesno)
-        self.calls = []
-
-    def form(self, title, text, fields, **kwargs):
-        self.calls.append(("form", text, fields, kwargs))
-        return self.forms.pop(0)
-
-    def yesno(self, text, autosize=False):
-        self.calls.append(("yesno", text))
-        return self.yesnos.pop(0)
-
-    def msgbox(self, title, text, **kwargs):
-        self.calls.append(("msgbox", title, text))
-        return self.OK
-
-    def infobox(self, text):
-        self.calls.append(("infobox", text))
-        return self.OK
-
-    def menu(self, *args, **kwargs):
-        raise AssertionError("menu must not be opened by these tests")
-
-
-@pytest.fixture
-def tc(confconsole):
-    """A TurnkeyConsole bound to eth0 with a fake console, no __init__."""
-
-    def _make(forms=(), yesno=()):
-        console = object.__new__(confconsole.TurnkeyConsole)
-        console.console = FakeConsole(forms, yesno)
-        console.ifname = "eth0"
-        return console
-
-    return _make
 
 
 @pytest.fixture
@@ -219,40 +177,6 @@ class TestStaticIPv6Form:
         assert [f[3] for f in console.console.calls[0][2]] == ["", "", ""]
 
 
-@pytest.fixture
-def net_stubs(confconsole, monkeypatch):
-    """Stub the ifutil readers the menus use; return a dict to steer them."""
-    state = {
-        "ifnames": ["eth0"],
-        "ipconf": (None, None, None, []),
-        "ipv6conf": (None, None),
-        "methods": {"inet": None, "inet6": None},
-        "default_nic": "eth0",
-    }
-    monkeypatch.setattr(
-        confconsole.TurnkeyConsole,
-        "_get_filtered_ifnames",
-        classmethod(lambda cls: list(state["ifnames"])),
-    )
-    monkeypatch.setattr(
-        confconsole.TurnkeyConsole,
-        "_get_default_nic",
-        classmethod(lambda cls: state["default_nic"]),
-    )
-    monkeypatch.setattr(
-        confconsole.ifutil, "get_ipconf", lambda ifname, error=False: state["ipconf"]
-    )
-    monkeypatch.setattr(
-        confconsole.ifutil, "get_ipv6conf", lambda ifname: state["ipv6conf"]
-    )
-    monkeypatch.setattr(
-        confconsole.ifutil,
-        "get_ifmethod",
-        lambda ifname, inet_family="inet": state["methods"][inet_family],
-    )
-    return state
-
-
 class TestNetworkMenuShowsIPv6:
     def test_ipv6_only_interface_is_listed_with_its_address(
         self, tc, net_stubs
@@ -262,12 +186,14 @@ class TestNetworkMenuShowsIPv6:
 
         assert tc()._get_netmenu() == [("eth0", "2001:db8:1::10 (static) [*]")]
 
-    def test_ipv4_still_comes_first_when_present(self, tc, net_stubs):
+    def test_dual_stack_lists_ipv6_then_ipv4(self, tc, net_stubs):
         net_stubs["ipconf"] = ("192.0.2.10", "255.255.255.0", "192.0.2.1", [])
         net_stubs["ipv6conf"] = ("2001:db8:1::10", "64")
         net_stubs["methods"] = {"inet": "dhcp", "inet6": "static"}
 
-        assert tc()._get_netmenu() == [("eth0", "192.0.2.10 (dhcp) [*]")]
+        assert tc()._get_netmenu() == [
+            ("eth0", "2001:db8:1::10 (static), 192.0.2.10 (dhcp) [*]")
+        ]
 
     def test_no_address_at_all_is_not_configured(self, tc, net_stubs):
         assert tc()._get_netmenu() == [("eth0", "not configured")]
