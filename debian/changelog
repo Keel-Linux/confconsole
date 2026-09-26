@@ -1,3 +1,18 @@
+confconsole (2.2.3+keel2) trixie; urgency=low
+
+  * Add the Instance menu: view the instance description, apply it, show the
+    drift between it and the machine, and export what the machine says as a
+    description. The menu is a front end over the keel client (keelcli), so
+    the console and the command line answer from the same code.
+  * Usage screen: put the mark above it, dropping to the small mark and then
+    to none before the addresses lose a line, so a serial console and an
+    80x24 terminal both render it.
+  * Recommend keel rather than suggest it: the Instance menu calls it, and
+    without it the menu says so instead of failing, so it stays a
+    recommendation and the package remains installable on its own.
+
+ -- Keel Linux maintainers <admin@keellinux.org>  Sat, 26 Sep 2026 22:03:04 +0000
+
 confconsole (2.2.3+keel1) trixie; urgency=low
 
   * ifutil: add the static IPv6 writer, NetworkInterfaces.set_static6 and
