@@ -1,9 +1,14 @@
-"""The usage screen with IPv6 first, and the adapter summary line.
+"""The usage screen with IPv6 first, the mark above it, and the adapter
+summary line.
 
 `render_usage` and `render_usage_line` are pure functions: a template
 string in, text out, no file and no dialog. `usage()` is exercised with
 its collaborators stubbed (interfaces, addresses, `tklbam-status`, the
-template path) and a fake console that records the message box.
+template path, the terminal size and the mark files) and a fake console
+that records the message box. The mark decision itself is measured in
+tests/test_keelbanner.py; what is checked here is that the mark goes
+above the usage text, that the box grows by what it takes and that
+nothing the screen already said moved.
 """
 
 import pytest
@@ -26,6 +31,12 @@ SSH/SFTP:  root@$ipaddr (port 22)"""
 LEGACY_TEMPLATE = """Web:       https://$ipaddr
 Webmin:    https://$ipaddr:12321
 SSH/SFTP:  root@$ipaddr (port 22)"""
+
+# Stand-ins for the two files the core overlay installs, at their sizes:
+# 38 by 19 and 23 by 11. What they draw is the design system's business
+# and is checked where the files live.
+FULL_MARK = "\n".join(["#" * 38] * 19) + "\n"
+SMALL_MARK = "\n".join(["#" * 23] * 11) + "\n"
 
 
 class TestRenderUsageLine:
@@ -271,8 +282,27 @@ def usage_env(confconsole, net_stubs, monkeypatch, tmp_path):
         return str(template)
 
     monkeypatch.setattr(confconsole.conf, "path", fake_path)
+
+    # The console the screen is drawn on, and the marks installed on it.
+    # An 80 by 24 terminal with no mark file is the default, which is what
+    # a test host has and what the screen looked like before the mark.
+    state["terminal"] = (24, 80)
+    state["marks"] = {}
+    monkeypatch.setattr(
+        confconsole.keelbanner, "terminal_size", lambda: state["terminal"]
+    )
+    monkeypatch.setattr(
+        confconsole.keelbanner, "read", lambda path: state["marks"].get(path)
+    )
     state["net"] = net_stubs
     return state
+
+
+def install_marks(state, full=FULL_MARK, small=SMALL_MARK):
+    """Put the two marks where the core overlay installs them."""
+    import keelbanner
+
+    state["marks"] = {keelbanner.MARK: full, keelbanner.MARK_SMALL: small}
 
 
 def make_usage_console(tc, advanced=True):
@@ -280,6 +310,7 @@ def make_usage_console(tc, advanced=True):
     console.advanced_enabled = advanced
     console.appname = "TurnKey Linux CORE"
     console.height = 25
+    console.width = 65
     console.running = True
     return console
 
@@ -413,6 +444,114 @@ class TestUsageScreen:
         console.usage()
 
         assert console.running is False
+
+
+class TestUsageMark:
+    """The mark goes above the usage text when the terminal has room for
+    it over and above the rows the screen already uses, and the box grows
+    by exactly what it takes, so no line of the screen is lost."""
+
+    def test_a_tall_terminal_gets_the_full_mark_above_the_services(
+        self, tc, usage_env
+    ):
+        # Arrange
+        usage_env["net"]["ipv6conf"] = (V6, "64")
+        usage_env["terminal"] = (50, 100)
+        install_marks(usage_env)
+        console = make_usage_console(tc)
+
+        # Act
+        console.usage()
+
+        # Assert
+        text = console.console.calls[-1][2]
+        lines = text.splitlines()
+        assert lines[:19] == ["#" * 38] * 19
+        assert lines[19] == ""
+        assert lines[20] == f"Web:       http://[{V6}]"
+        assert console.console.msgbox_kwargs["height"] == 45
+
+    def test_a_shorter_terminal_falls_back_to_the_small_mark(
+        self, tc, usage_env
+    ):
+        # Arrange
+        usage_env["net"]["ipv6conf"] = (V6, "64")
+        usage_env["terminal"] = (40, 100)
+        install_marks(usage_env)
+        console = make_usage_console(tc)
+
+        # Act
+        console.usage()
+
+        # Assert
+        lines = console.console.calls[-1][2].splitlines()
+        assert lines[:11] == ["#" * 23] * 11
+        assert lines[12] == f"Web:       http://[{V6}]"
+        assert console.console.msgbox_kwargs["height"] == 37
+
+    def test_80_by_24_keeps_the_usage_screen_whole(self, tc, usage_env):
+        # Arrange
+        usage_env["net"]["ipv6conf"] = (V6, "64")
+        usage_env["terminal"] = (24, 80)
+        install_marks(usage_env)
+        console = make_usage_console(tc)
+
+        # Act
+        console.usage()
+
+        # Assert
+        text = console.console.calls[-1][2]
+        assert "#" not in text
+        assert text.splitlines()[0] == f"Web:       http://[{V6}]"
+        assert console.console.msgbox_kwargs["height"] == 25
+
+    def test_an_appliance_without_the_mark_files_is_unchanged(
+        self, tc, usage_env
+    ):
+        # Arrange
+        usage_env["net"]["ipv6conf"] = (V6, "64")
+        usage_env["terminal"] = (50, 100)
+        console = make_usage_console(tc)
+
+        # Act
+        console.usage()
+
+        # Assert
+        text = console.console.calls[-1][2]
+        assert text.splitlines()[0] == f"Web:       http://[{V6}]"
+        assert console.console.msgbox_kwargs["height"] == 25
+
+    def test_the_mark_does_not_displace_the_ipv4_block_or_the_footer(
+        self, tc, usage_env
+    ):
+        # Arrange
+        usage_env["net"]["ipconf"] = (V4, "255.255.255.0", "192.0.2.1", [])
+        usage_env["net"]["ipv6conf"] = (V6, "64")
+        usage_env["terminal"] = (50, 100)
+        install_marks(usage_env)
+        console = make_usage_console(tc)
+
+        # Act
+        console.usage()
+
+        # Assert
+        lines = console.console.calls[-1][2].splitlines()
+        assert lines[26] == f"Web:       http://{V4}"
+        assert "TKLBAM: not initialized" in lines
+        assert lines[-1] == "             https://hub.turnkeylinux.org"
+
+    def test_a_narrow_terminal_drops_the_mark(self, tc, usage_env):
+        # Arrange
+        usage_env["net"]["ipv6conf"] = (V6, "64")
+        usage_env["terminal"] = (50, 26)
+        install_marks(usage_env)
+        console = make_usage_console(tc)
+
+        # Act
+        console.usage()
+
+        # Assert
+        assert "#" not in console.console.calls[-1][2]
 
 
 class TestUsageUsesIfutilPreference:
