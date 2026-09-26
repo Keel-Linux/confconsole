@@ -69,6 +69,55 @@ file again later. The adapter list and the usage screen show the global
 IPv6 address, so an adapter with only an IPv6 address is not reported as
 "not configured".
 
+Usage screen
+------------
+
+The main screen lists the addresses of the default adapter and the
+services reachable on them, IPv6 first. The text comes from the template
+``/etc/confconsole/services.txt`` (``conf/services.txt`` in the source),
+with these placeholders:
+
+- ``$ipaddr6``: the global IPv6 address of the adapter. When the adapter
+  has several, the stable one is chosen: a static address before a SLAAC
+  or DHCPv6 (``dynamic``) one, and privacy (``temporary``) addresses last.
+- ``$ipaddr``: the IPv4 address, or the output of ``publicip_cmd`` from
+  ``confconsole.conf`` when that is set.
+- ``$hostname`` and ``$appname``: the host name in capitals and the
+  appliance name from ``/etc/appname``.
+
+A line whose placeholder has no value is dropped, so a template that
+lists both families shows only the IPv6 block on an IPv6-only adapter
+and only the IPv4 block on an IPv4-only one. The shipped template is::
+
+    Web:       http://[$ipaddr6]
+               https://[$ipaddr6]
+    Web shell: https://[$ipaddr6]:12320
+    Webmin:    https://[$ipaddr6]:12321
+    SSH/SFTP:  root@$ipaddr6 (port 22)
+
+    Web:       http://$ipaddr
+               https://$ipaddr
+    Web shell: https://$ipaddr:12320
+    Webmin:    https://$ipaddr:12321
+    SSH/SFTP:  root@$ipaddr (port 22)
+
+An IPv6 address used as the host of a URL (right after ``://``) is
+rendered in brackets, ``https://[2001:db8:1::10]:12321``, whether or not
+the template writes them; ``root@$ipaddr6`` stays as it is.
+
+Appliance templates written before ``$ipaddr6`` existed, with ``$ipaddr``
+only, keep working without a change: on an adapter without IPv4 the IPv6
+address takes the place of ``$ipaddr`` (bracketed in URLs), and on a dual
+stack adapter two lines, ``IPv6 Web`` and ``IPv6 SSH``, precede the
+template text. To show every service on both families, add the
+``$ipaddr6`` lines to the appliance's ``services.txt`` as above.
+
+In the networking menu the summary line of an adapter follows the same
+order: ``2001:db8:1::10, 192.0.2.10 (dhcp) [*]``, with the configuration
+method after each address when the two families differ
+(``2001:db8:1::10 (static), 192.0.2.10 (dhcp)``). ``[*]`` marks the
+adapter the usage screen shows.
+
 Notes
 -----
 
