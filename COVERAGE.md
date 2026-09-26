@@ -80,6 +80,29 @@ is popped from the new options before the override check), and
 `format_value` is dead code. Both belong to the static IPv6 pull request
 (plan 04, section 3.2), which touches that function.
 
+## Measured on 2026-09-26 with the static IPv6 change
+
+| File | Tests | Stmts | Branches | Cover |
+|------|-------|-------|----------|-------|
+| ifutil.py | 152 in the three files above plus tests/test_ifutil_static6.py, and 3 in tests/test_confconsole_ifconf6.py (`get_ip6conf`) | 551 | 230 | 100 percent, 0 missed, 0 partial |
+| confconsole.py | 20 in tests/test_confconsole_ifconf6.py: `format_fields`, `_ifconf_staticipv6`, `_get_netmenu`, `_get_ifconfmenu`, `_get_ifconftext` | 811 before the change | | not measured, see below |
+
+Total 175 tests. Threshold in the caller: 100, the measured number for the
+measured package (`ifutil`). The two observations above are resolved:
+`_merge_iface_options` writes a single hostname line and `format_value`
+is gone.
+
+confconsole.py is exercised without launching a dialog: `tests/conftest.py`
+registers stubs for the `dialog` and `systemd.journal` modules when they
+are not importable, `TurnkeyConsole` is created without `__init__`, its
+`console` is replaced by a scripted fake and the `ifutil` calls are
+recorded. The file is not added to `package:` because the gate measures
+the package as a whole and the rest of confconsole.py (usage screen,
+installer, plugin dispatch, the IPv4 form) has no tests yet; adding it
+would report about 15 percent and the threshold could not be honoured.
+It joins the measured set when plan item 5 below is executed; until then
+the new dialog code is tested but its number is not part of the gate.
+
 ## Plan to reach 90 percent per file
 
 Priority order (size: small under 30 lines of test, medium under 150,
@@ -88,7 +111,9 @@ them, for example `2001:db8:1::10/64` with gateway `2001:db8:1::1` and
 nameserver `2001:db8::53`.
 
 1. `ifutil.py` (663 lines, large). Done on 2026-09-26 at 99.21 percent,
-   see the table above. First because the static IPv6 writer
+   then 100 percent with the static IPv6 change (`set_static6`,
+   `set_dhcp6`, `get_ip6conf`, `_list_ipv6_global`, the IPv6 validators),
+   see the tables above. First because the static IPv6 writer
    (plan 04, section 3.2) changes `NetworkInterfaces.set_static()`,
    `set_dhcp()`, `set_manual()`, `gen_default_if_config()` and the
    `inet_family` defaults, and no change lands there without a test.
@@ -115,8 +140,10 @@ nameserver `2001:db8::53`.
    usage template rendering, the "not configured" decision of the
    network menu). Per brief section 6 that logic moves into functions
    without a dialog, tested directly with `dialog` stubbed; the dialog
-   class then stays thin. Plan 04 section 3.2 adds `_ifconf_staticipv6`
-   the same way.
+   class then stays thin. `_ifconf_staticipv6` (plan 04 section 3.2) was
+   written that way on 2026-09-26, with the stubbing in place in
+   `tests/conftest.py` and `tests/test_confconsole_ifconf6.py` as the
+   pattern for the rest of the file.
 6. `plugins.d` Python, smallest first: Security_Update, tzdata,
    add-water-client, locales, example, Confconsole_auto_start, keyboard,
    cert_auto_renew (small each); apt, add-water-srv (request each route

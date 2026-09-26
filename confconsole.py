@@ -70,16 +70,20 @@ def usage(msg: str | getopt.GetoptError = "") -> NoReturn:
 
 def format_fields(
     fields: Iterable[tuple[str, str, int, int]],
+    field_offset: int | None = None,
 ) -> list[tuple[str, int, int, str, int, int, int, int]]:
     """Takes fields in format (label, field, label_length, field_length) and
     outputs fields in format (label, ly, lx, item, iy, ix, field_length,
     input_length)
+
+    By default the field starts after label_length columns and is as wide;
+    'field_offset' separates the two, so a 43 column IPv6 field can follow
+    a 20 column label.
     """
     out = []
     for i, (label, field, l_length, f_length) in enumerate(fields):
-        out.append(
-            (label, i + 1, 1, field, i + 1, l_length + 1, l_length, f_length)
-        )
+        ix = (field_offset if field_offset is not None else l_length) + 1
+        out.append((label, i + 1, 1, field, i + 1, ix, l_length, f_length))
     return out
 
 
@@ -419,6 +423,11 @@ class TurnkeyConsole:
             log.debug("ifname '%s' addr: %s", ifname, addr)
             ifmethod = ifutil.get_ifmethod(ifname)
             log.debug("ifname '%s' ifmethod: %s", ifname, ifmethod)
+            if not addr:
+                # no IPv4: an interface with a global IPv6 is configured
+                addr = ifutil.get_ipv6conf(ifname)[0]
+                ifmethod = ifutil.get_ifmethod(ifname, "inet6")
+                log.debug("ifname '%s' ipv6 addr: %s", ifname, addr)
 
             if addr:
                 desc = addr
@@ -438,11 +447,15 @@ class TurnkeyConsole:
         menu = []
         menu.append(("DHCP", "Configure networking automatically"))
         menu.append(("StaticIP", "Configure networking manually"))
+        menu.append(("StaticIPv6", "Configure IPv6 networking manually"))
 
         if (
             not ifname == self._get_default_nic()
             and len(self._get_filtered_ifnames()) > 1
-            and ifutil.get_ipconf(ifname)[0] is not None
+            and (
+                ifutil.get_ipconf(ifname)[0] is not None
+                or ifutil.get_ipv6conf(ifname)[0] is not None
+            )
         ):
             menu.append(("Default", "Show this adapter's IP address in Usage"))
 
@@ -450,23 +463,27 @@ class TurnkeyConsole:
 
     def _get_ifconftext(self, ifname: str) -> str:
         addr, netmask, gateway, nameservers = ifutil.get_ipconf(ifname)
-        if addr is None:
+        ipv6_addr, ipv6_prefix = ifutil.get_ipv6conf(ifname)
+        if addr is None and ipv6_addr is None:
             msg = "Network adapter is not configured"
             log.warning(msg)
             return msg + "\n"
         nameserver_str = " ".join(nameservers)
-        log.info(
-            f"ip: {addr} netmask: {netmask} gateway: {gateway}"
-            f" nameservers: {nameserver_str}",
-        )
-        text = f"IP Address:      {addr}\n"
-        text += f"Netmask:         {netmask}\n"
-        text += f"Default Gateway: {gateway}\n"
-        text += f"Name Server(s):  {nameserver_str}\n"
-        ipv6_addr, ipv6_prefix = ifutil.get_ipv6conf(ifname)
+        text = ""
+        if addr is not None:
+            log.info(
+                f"ip: {addr} netmask: {netmask} gateway: {gateway}"
+                f" nameservers: {nameserver_str}",
+            )
+            text += f"IP Address:      {addr}\n"
+            text += f"Netmask:         {netmask}\n"
+            text += f"Default Gateway: {gateway}\n"
+            text += f"Name Server(s):  {nameserver_str}\n"
         if ipv6_addr:
             log.info(f"ipv6: {ipv6_addr}/{ipv6_prefix}")
-            text += f"IPv6 Address: {ipv6_addr}/{ipv6_prefix}\n"
+            text += f"IPv6 Address:    {ipv6_addr}/{ipv6_prefix}\n"
+            if addr is None:
+                text += f"Name Server(s):  {nameserver_str}\n"
         text += "\n"
 
         ifmethod = ifutil.get_ifmethod(ifname)
@@ -474,6 +491,11 @@ class TurnkeyConsole:
             conf_method = f"Networking configuration method: {ifmethod}"
             log.info(conf_method)
             text += conf_method + "\n"
+        ifmethod6 = ifutil.get_ifmethod(ifname, "inet6")
+        if ifmethod6:
+            conf_method6 = f"IPv6 configuration method: {ifmethod6}"
+            log.info(conf_method6)
+            text += conf_method6 + "\n"
 
         if len(self._get_filtered_ifnames()) > 1:
             text += "Is this adapter's IP address displayed in Usage: "
@@ -828,6 +850,82 @@ class TurnkeyConsole:
                     self.console.msgbox("Error", maybe_err)
                 else:
                     break
+
+        return "ifconf"
+
+    def _ifconf_staticipv6(self) -> str:
+        """Static IPv6 form: address/prefix, gateway and name servers.
+
+        The dialog only collects the fields; validation and the rewrite of
+        the inet6 stanza are ifutil.set_static6(). Clearing every field
+        returns the interface to the shipped default, inet6 dhcp.
+        """
+        log.info("Applying static IPv6")
+
+        addr_prefix, gateway, nameservers = ifutil.get_ip6conf(self.ifname)
+        value = [addr_prefix or "", gateway or "", *nameservers]
+
+        # include minimum 1 nameserver field and 1 blank one
+        if len(value) < 3:
+            value.append("")
+        if value[-1]:
+            value.append("")
+
+        label_width = 20
+        addr_limit = 43  # 39 for the address, 4 for '/128'
+        ip_limit = 39
+
+        while 1:
+            pre_fields: list[tuple[str, str, int, int]] = [
+                ("IPv6 Address/Prefix", value[0], addr_limit, addr_limit),
+                ("IPv6 Gateway", value[1], addr_limit, ip_limit),
+            ]
+            for nameserver in value[2:]:
+                pre_fields.append(
+                    ("Name Server", nameserver, addr_limit, ip_limit)
+                )
+
+            fields = format_fields(pre_fields, field_offset=label_width)
+            text = f"Static IPv6 configuration ({self.ifname})"
+            retcode, input = self.console.form(
+                "Network settings", text, fields, autosize=True
+            )
+            log.debug("static ipv6 input: %s", input)
+            log.debug("static ipv6 retcode: %s", retcode)
+            if retcode is not self.OK:
+                break
+
+            # remove any whitespaces the user might of included
+            input = list(map(str.strip, input))
+
+            # back to the shipped default if all entries are empty
+            if not any(input):
+                err = ifutil.set_dhcp6(self.ifname)
+                if err:
+                    self.console.msgbox("Error", err)
+                break
+
+            addr_prefix, gateway = input[:2]
+            nameservers = [ns for ns in input[2:] if ns]
+            value = [addr_prefix, gateway, *nameservers, ""]
+
+            in_ssh = "SSH_CONNECTION" in os.environ
+            if in_ssh and (
+                self.console.yesno(
+                    "Warning: Changing ip while an ssh session is active"
+                    " will drop said ssh session!",
+                    autosize=True,
+                )
+                != self.OK
+            ):
+                break
+
+            maybe_err = ifutil.set_static6(
+                self.ifname, addr_prefix, gateway, nameservers
+            )
+            if maybe_err is None:
+                break
+            self.console.msgbox("Error", maybe_err)
 
         return "ifconf"
 

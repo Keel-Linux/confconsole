@@ -4,7 +4,7 @@ import os
 import re
 import subprocess
 from dataclasses import dataclass
-from ipaddress import ip_address
+from ipaddress import ip_address, IPv6Interface
 from os.path import join, exists
 from time import sleep
 
@@ -210,13 +210,6 @@ def _merge_iface_options(
     except KeyError:
         new_hostname = None
 
-    def format_value(v: str | list[str]) -> str:
-        # convert value lists to space separated string.
-        # E.g. join list of nameservers
-        if isinstance(v, list):
-            return " ".join(v)
-        return str(v)
-
     # new/updated values go first
     final_list = []
     for k, v in new_opts.items():
@@ -227,8 +220,11 @@ def _merge_iface_options(
 
     # then existing lines, skipping any whose key we've already replaced
     for opt in current_opts:
-        if opt[0] == "hostname" and not new_hostname:
-            new_hostname = opt[1]
+        if opt[0] == "hostname":
+            # a single hostname line: the new one wins, else the current one
+            # is kept (re-inserted first below)
+            if not new_hostname:
+                new_hostname = opt[1]
             continue
         elif opt[0] in new_opts:
             continue  # new value override already set
@@ -296,6 +292,87 @@ def _valid_ip(ip: str) -> str:
     except ValueError as e:
         raise InvalidIPError(str(e)) from e
     return ip
+
+
+def _valid_ip6(ip: str, what: str = "IPv6 address") -> str:
+    """Validate a plain IPv6 unicast address, refusing IPv4.
+
+    Returns:
+        str:
+            The address in compressed form (as `ip -6 addr` prints it).
+
+    Raises:
+        InvalidIPv6Error:
+            - If 'ip' carries a prefix length, is not an IP at all, is an
+              IPv4 address, or is not unicast (multicast, loopback or the
+              unspecified address). Link-local is accepted: it is the
+              usual gateway on a routed segment (fe80::1).
+    """
+    if "/" in ip:
+        raise InvalidIPv6Error(
+            f"{what} must be a plain address, not address/prefix: '{ip}'"
+        )
+    try:
+        parsed = ip_address(ip)
+    except ValueError as e:
+        raise InvalidIPv6Error(
+            f"{what} is not a valid IPv6 address: '{ip}'"
+        ) from e
+    if parsed.version != 6:
+        raise InvalidIPv6Error(
+            f"{what} must be IPv6, not IPv4: '{ip}'"
+            " (use the IPv4 'StaticIP' form for IPv4 addresses)"
+        )
+    if parsed.is_multicast or parsed.is_loopback or parsed.is_unspecified:
+        raise InvalidIPv6Error(
+            f"{what} must be a unicast address: '{ip}'"
+        )
+    return str(parsed)
+
+
+def _valid_ip6_prefix(addr_prefix: str) -> str:
+    """Validate 'address/prefix' for an 'inet6 static' stanza.
+
+    The prefix length is mandatory (there is no netmask line for inet6).
+    Link-local addresses are refused here, unlike in _valid_ip6, because a
+    static link-local address is not what an operator means by "static".
+
+    Returns:
+        str:
+            Normalised 'address/prefix', e.g. '2001:db8:1::10/64'.
+
+    Raises:
+        InvalidIPv6Error:
+            - On a missing or invalid prefix length, an IPv4 address, or
+              anything _valid_ip6 refuses.
+    """
+    addr, sep, plen = addr_prefix.partition("/")
+    if not sep:
+        raise InvalidIPv6Error(
+            "IPv6 address needs a prefix length, e.g. 2001:db8:1::10/64:"
+            f" '{addr_prefix}'"
+        )
+    addr = _valid_ip6(addr)
+    try:
+        iface = IPv6Interface(f"{addr}/{plen}")
+    except ValueError as e:
+        raise InvalidIPv6Error(
+            f"Invalid IPv6 prefix length (0-128): '{plen}'"
+        ) from e
+    if iface.ip.is_link_local:
+        raise InvalidIPv6Error(
+            f"IPv6 address must not be link-local: '{addr}'"
+        )
+    return f"{iface.ip}/{iface.network.prefixlen}"
+
+
+def _ip6_nameservers(nameservers: list[str]) -> list[str]:
+    """Validate nameservers and keep the IPv6 ones.
+
+    Every entry must be a valid IP (InvalidIPError otherwise); IPv4 entries
+    are dropped, so the 'inet6' stanza only ever lists IPv6 resolvers.
+    """
+    return [ns for ns in nameservers if ip_address(_valid_ip(ns)).version == 6]
 
 
 @dataclass
@@ -569,6 +646,82 @@ class NetworkInterfaces:
                 )
         self.conf[ifname] = _data_to_list(ifconf_block)
 
+    def _set_inet6(
+        self,
+        ifname: str,
+        method: str,
+        new_opts: dict[str, str | list[str] | None] | None = None,
+    ) -> None:
+        """Rewrite (or add) the 'inet6' stanza of 'ifname'.
+
+        The 'inet' stanza is never touched. If the interface does not exist
+        a default one (IPv4 and IPv6 DHCP) is generated first; if it exists
+        without an 'inet6' stanza, one is appended after the existing
+        stanzas so the IPv4 configuration is kept as is.
+        """
+        if ifname not in self.conf:
+            self.gen_default_if_config(ifname, "both")
+        ifconf_block = _list_to_data(self.conf[ifname])
+        found = False
+        for index, stanza in enumerate(ifconf_block):
+            if "family" in stanza and stanza["family"] == "inet6":
+                found = True
+                stripped = _strip_static_opts(stanza["options"])
+                ifconf_block[index]["method"] = method
+                ifconf_block[index]["options"] = (
+                    _merge_iface_options(stripped, new_opts)
+                    if new_opts else stripped
+                )
+        if not found:
+            ifconf_block.append({
+                "iface": ifname,
+                "family": "inet6",
+                "method": method,
+                "options": _merge_iface_options([], new_opts or {}),
+            })
+        self.conf[ifname] = _data_to_list(ifconf_block)
+
+    def set_dhcp6(self, ifname: str) -> None:
+        """Set interface IPv6 method to DHCP; the IPv4 stanza is untouched.
+
+        'dhcp' rather than 'auto' because it is what the TurnKey interfaces
+        file ships ('iface eth0 inet6 dhcp'); with dhcpcd behind ifupdown
+        that method covers SLAAC as well as DHCPv6.
+        """
+        self._set_inet6(ifname, "dhcp")
+
+    def set_static6(
+        self,
+        ifname: str,
+        addr_prefix: str,
+        gateway: str | None = None,
+        nameservers: list[str] | None = None,
+    ) -> None:
+        """Set interface IPv6 method to static; the IPv4 stanza is untouched.
+
+        Args:
+            addr_prefix: 'address/prefix', e.g. '2001:db8:1::10/64'. The
+                prefix length is folded into the address line; no netmask
+                line is written.
+            gateway: optional; link-local (fe80::1) is accepted.
+            nameservers: optional; only IPv6 entries are written, IPv4
+                entries are dropped, anything else is an error.
+
+        Raises:
+            InvalidIPv6Error, InvalidIPError: on invalid input; nothing is
+            changed in that case.
+        """
+        new_conf_dict: dict[str, str | list[str] | None] = {
+            "address": _valid_ip6_prefix(addr_prefix),
+        }
+        if gateway:
+            new_conf_dict["gateway"] = _valid_ip6(gateway, "IPv6 gateway")
+        if nameservers:
+            new_conf_dict["dns-nameservers"] = (
+                _ip6_nameservers(nameservers) or None
+            )
+        self._set_inet6(ifname, "static", new_conf_dict)
+
     def get_if_conf(
         self, ifname: str, key: str, inet_family = "inet",
     ) -> list[str] | None:
@@ -784,6 +937,78 @@ def set_dhcp(ifname: str) -> str | None:
         return str(e)
 
 
+def set_static6(
+    ifname: str,
+    addr_prefix: str,
+    gateway: str | None = None,
+    nameservers: list[str] | None = None,
+) -> str | None:
+    """Set a static IPv6 for 'ifname'; the IPv4 stanza is untouched.
+
+    Mirrors set_static(): validate first (nothing is touched on bad input),
+    ifdown, rewrite /etc/network/interfaces, ifup, then confirm the address
+    is on the interface. Returns None on success, the error text otherwise.
+    """
+    try:
+        addr_prefix = _valid_ip6_prefix(addr_prefix)
+        gw = _valid_ip6(gateway, "IPv6 gateway") if gateway else None
+        nameservers = _ip6_nameservers(nameservers or [])
+
+        ifdown(ifname, force=True)
+
+        interfaces = NetworkInterfaces()
+        interfaces.read()
+        backup_interfaces = interfaces.duplicate()
+
+        try:
+            interfaces.set_static6(ifname, addr_prefix, gw, nameservers)
+            interfaces.write()
+            sleep(0.5)
+        except Exception as e:
+            backup_interfaces.write()
+            raise e
+        finally:
+            output = ifup(ifname, True)
+
+        addr = addr_prefix.split("/")[0]
+        if addr not in [a for a, _p, _f in _list_ipv6_global(ifname)]:
+            raise IfError(f"Error: {addr} not found on {ifname}\n\n{output}")
+
+        return None
+    except Exception as e:
+        log.exception("set_static6 failed for %s", ifname)
+        return str(e)
+
+
+def set_dhcp6(ifname: str) -> str | None:
+    """Set 'ifname' back to 'inet6 dhcp'; the IPv4 stanza is untouched."""
+    try:
+        ifdown(ifname, True)
+
+        interfaces = NetworkInterfaces()
+        interfaces.read()
+        backup_interfaces = interfaces.duplicate()
+        try:
+            interfaces.set_dhcp6(ifname)
+            interfaces.write()
+        except Exception as e:
+            backup_interfaces.write()
+            raise e
+        finally:
+            output = ifup(ifname, True)
+        for _retry in range(10):
+            addr = get_ipv6conf(ifname)[0]
+            if addr:
+                break
+            sleep(1)
+        if not addr:
+            raise IfError(f"Error obtaining IPv6 address\n\n{output}")
+        return None
+    except Exception as e:
+        log.exception("set_dhcp6 failed for %s", ifname)
+        return str(e)
+
+
 def get_ipconf(
     ifname: str, error: bool = False
 ) -> tuple[str | None, str | None, str | None, list[str]]:
@@ -799,22 +1024,64 @@ def get_ipconf(
     return (None, None, net.get_gateway(error), get_nameservers(ifname))
 
 
-def get_ipv6conf(ifname: str) -> tuple[str | None, str | None]:
-    """Get IPv6 global address and prefix for an interface."""
+def get_ip6conf(ifname: str) -> tuple[str | None, str | None, list[str]]:
+    """Current IPv6 settings of 'ifname' for the static IPv6 form.
+
+    Returns ('address/prefix' or None, gateway or None, nameservers). The
+    address is the live one (get_ipv6conf); gateway and nameservers come
+    from the inet6 stanza of /etc/network/interfaces, the nameservers
+    falling back to the IPv6 entries of get_nameservers().
+    """
+    addr, prefix = get_ipv6conf(ifname)
+    addr_prefix = f"{addr}/{prefix}" if addr else None
+
+    interfaces = NetworkInterfaces()
+    interfaces.read()
+    gateway = interfaces.get_if_conf(ifname, "gateway", "inet6")
+    nameservers = interfaces.get_if_conf(ifname, "dns-nameservers", "inet6")
+    if not nameservers:
+        try:
+            nameservers = _ip6_nameservers(get_nameservers(ifname))
+        except InvalidIPError:
+            nameservers = []  # a resolv.conf entry that is not an IP
+    return (addr_prefix, gateway[0] if gateway else None, nameservers)
+
+
+def _list_ipv6_global(ifname: str) -> list[tuple[str, str, set[str]]]:
+    """Global IPv6 addresses of an interface as (address, prefix, flags).
+
+    Flags are the words after the address in `ip -6 addr` output, such as
+    'dynamic', 'temporary' or 'tentative'. Empty when the command fails.
+    """
     try:
         out = subprocess.check_output(
             ["ip", "-6", "addr", "show", ifname, "scope", "global"],
             text=True, stderr=subprocess.DEVNULL
         )
-        for line in out.splitlines():
-            line = line.strip()
-            if line.startswith("inet6"):
-                parts = line.split()
-                addr_prefix = parts[1]
-                addr, prefix = addr_prefix.split("/")
-                return (addr, prefix)
     except Exception:
-        pass
+        return []
+    found = []
+    for line in out.splitlines():
+        parts = line.split()
+        if parts and parts[0] == "inet6":
+            addr, prefix = parts[1].split("/")
+            found.append((addr, prefix, set(parts[2:])))
+    return found
+
+
+def get_ipv6conf(ifname: str) -> tuple[str | None, str | None]:
+    """Get IPv6 global address and prefix for an interface.
+
+    When several exist the stable one is preferred: a static address before
+    a 'dynamic' (SLAAC or DHCPv6) one, and privacy ('temporary') addresses
+    last, so the usage screen shows the address that stays reachable.
+    """
+    def _rank(entry: tuple[str, str, set[str]]) -> tuple[bool, bool]:
+        return ("temporary" in entry[2], "dynamic" in entry[2])
+
+    addrs = sorted(_list_ipv6_global(ifname), key=_rank)
+    if addrs:
+        return (addrs[0][0], addrs[0][1])
     return (None, None)
 
 

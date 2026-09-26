@@ -213,17 +213,13 @@ class TestMergeIfaceOptions:
 
         assert merged == [["hostname", STUB_HOSTNAME]]
 
-    def test_new_hostname_goes_first_and_current_line_is_retained(
-        self, ifutil, hostname
-    ):
-        # Current upstream behaviour: the hostname key is popped from the
-        # new options before the override check, so the existing hostname
-        # line is kept after the new one instead of being replaced.
+    def test_new_hostname_replaces_current_line(self, ifutil, hostname):
         merged = ifutil._merge_iface_options(
-            [["hostname", "old"]], {"hostname": "new"}
+            [["hostname", "old"], ["post-up", "/bin/true"]],
+            {"hostname": "new"},
         )
 
-        assert merged == [["hostname", "new"], ["hostname", "old"]]
+        assert merged == [["hostname", "new"], ["post-up", "/bin/true"]]
 
     def test_hostname_is_generated_when_missing_everywhere(
         self, ifutil, hostname
