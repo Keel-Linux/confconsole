@@ -1024,6 +1024,29 @@ def get_ipconf(
     return (None, None, net.get_gateway(error), get_nameservers(ifname))
 
 
+def get_ip6conf(ifname: str) -> tuple[str | None, str | None, list[str]]:
+    """Current IPv6 settings of 'ifname' for the static IPv6 form.
+
+    Returns ('address/prefix' or None, gateway or None, nameservers). The
+    address is the live one (get_ipv6conf); gateway and nameservers come
+    from the inet6 stanza of /etc/network/interfaces, the nameservers
+    falling back to the IPv6 entries of get_nameservers().
+    """
+    addr, prefix = get_ipv6conf(ifname)
+    addr_prefix = f"{addr}/{prefix}" if addr else None
+
+    interfaces = NetworkInterfaces()
+    interfaces.read()
+    gateway = interfaces.get_if_conf(ifname, "gateway", "inet6")
+    nameservers = interfaces.get_if_conf(ifname, "dns-nameservers", "inet6")
+    if not nameservers:
+        try:
+            nameservers = _ip6_nameservers(get_nameservers(ifname))
+        except InvalidIPError:
+            nameservers = []  # a resolv.conf entry that is not an IP
+    return (addr_prefix, gateway[0] if gateway else None, nameservers)
+
+
 def _list_ipv6_global(ifname: str) -> list[tuple[str, str, set[str]]]:
     """Global IPv6 addresses of an interface as (address, prefix, flags).
 

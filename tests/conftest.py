@@ -45,12 +45,63 @@ def _install_netinfo_stub():
         sys.modules["netinfo"] = stub
 
 
+def _install_dialog_stubs():
+    """Register stand-ins for the two modules confconsole.py imports that
+    are not on PyPI as such (pythondialog needs the dialog binary, systemd
+    needs libsystemd). The dialog tests never open a dialog: the test
+    replaces TurnkeyConsole.console with a scripted fake."""
+    try:
+        importlib.import_module("dialog")
+    except ModuleNotFoundError:
+        stub = types.ModuleType("dialog")
+
+        class DialogError(Exception):
+            pass
+
+        class Dialog:
+            OK = "ok"
+
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def add_persistent_args(self, args):
+                pass
+
+        stub.DialogError = DialogError
+        stub.Dialog = Dialog
+        sys.modules["dialog"] = stub
+    try:
+        importlib.import_module("systemd.journal")
+    except ModuleNotFoundError:
+        import logging
+
+        package = types.ModuleType("systemd")
+        journal = types.ModuleType("systemd.journal")
+
+        class JournalHandler(logging.NullHandler):
+            def __init__(self, *args, **kwargs):
+                super().__init__()
+
+        journal.JournalHandler = JournalHandler
+        package.journal = journal
+        sys.modules["systemd"] = package
+        sys.modules["systemd.journal"] = journal
+
+
 _install_netinfo_stub()
+_install_dialog_stubs()
 
 
 @pytest.fixture
 def ifutil():
     import ifutil as module
+
+    return module
+
+
+@pytest.fixture
+def confconsole():
+    import confconsole as module
 
     return module
 
