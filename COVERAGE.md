@@ -119,6 +119,25 @@ readers stubbed). The shared dialog fixtures (`FakeConsole`, `tc`,
 `net_stubs`) moved to `tests/conftest.py` so every confconsole test file
 uses the same stubbing.
 
+## Measured on 2026-09-26 with the Instance menu
+
+| File | Tests | Stmts | Branches | Cover |
+|------|-------|-------|----------|-------|
+| ifutil.py | 155 as above (unchanged file) | 551 | 230 | 100 percent, 0 missed, 0 partial |
+| keelcli.py (new: the keel client of the Instance menu) | 50 in tests/test_keelcli.py: `spec_path`, `report_path`, `call` with `subprocess.run` replaced, the `KeelNotInstalled` path, `describe_exit` for every code of every command, `read_text`, `format_value`, `clip`, `diff_rows`, `align`, `summary`, `render_diff`, the four screen texts | 104 | 16 | 100 percent, 0 missed, 0 partial |
+| plugins.d/Instance (new: View_spec, Apply_spec, Show_drift, Export_spec) | 17 in tests/test_instance_menu.py: each entry loaded through `plugin.Plugin` and run with a scripted console and `keelcli.call` replaced; the missing keel message, cancel paths, the exit code messages | 52 | 4 | 100 percent, 0 missed, 0 partial |
+| confconsole.py | 57 as above (unchanged file) | 646 | 236 | 38 percent, not measured, as above |
+
+Total 279 tests. Threshold in the caller: 100, unchanged; the measured
+package is now `ifutil,keelcli,plugins.d/Instance`. The Instance menu is
+the first plugin directory written under brief section 6 (no logic in the
+dialogs): the entries only collect input, call `keel` through `keelcli`
+and show its text, so they are measured at 100 percent alongside the
+client. `keelcli.py` lives at the package root, next to `ifutil.py`,
+because `plugin.py` loads entries with `spec_from_file_location` and
+never adds the plugin directory to the import path; the root is already
+on it. `tests/conftest.py` gained `FakeConsole.inputbox`.
+
 ## Plan to reach 90 percent per file
 
 Priority order (size: small under 30 lines of test, medium under 150,
@@ -164,7 +183,10 @@ nameserver `2001:db8::53`.
    `describe_interface`, pure functions; `usage()` tested with stubs).
    Left: `_ifconf_staticip._validate`, `_validip`, `_get_default_nic`,
    `_get_filtered_ifnames`, `_get_advmenu`, the installer and the loop.
-6. `plugins.d` Python, smallest first: Security_Update, tzdata,
+6. `plugins.d` Python, smallest first (the Instance directory is done,
+   see above, and is the pattern for the rest: a client module without a
+   dialog, entries that only collect input and show text):
+   Security_Update, tzdata,
    add-water-client, locales, example, Confconsole_auto_start, keyboard,
    cert_auto_renew (small each); apt, add-water-srv (request each route
    on `[::1]`), Secupdates_adv_conf, hostname, mail_relay (medium);

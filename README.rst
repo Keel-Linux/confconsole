@@ -92,6 +92,13 @@ The Advanced menu provides the below functionality in all appliances
   - install security updates
   - update hostname
 
+- `Instance`_:
+
+  - View the instance spec and its validation report
+  - Apply the spec (``keel spec apply``)
+  - Show drift between the spec and the machine (``keel diff``)
+  - Export a spec from the machine (``keel inspect``)
+
 - Install the system to the hard disk (only available when running live)
 - Reboot the appliance
 - Shut down the appliance
@@ -140,5 +147,6 @@ Developers may be interested in reading further about the `Plugin`_ system.
 .. _Proxy settings: ./docs/Proxy_settings.rst
 .. _Region config: ./docs/Region_config.rst
 .. _System settings: ./docs/System_settings.rst
+.. _Instance: ./docs/Instance.rst
 .. _TurnKey Linux Appliances: https://www.turnkeylinux.org/all
 .. _support forums: https://www.turnkeylinux.org/forum/support
