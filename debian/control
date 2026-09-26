@@ -22,10 +22,10 @@ Recommends:
  authbind,
  dehydrated,
  kbd,
+ keel,
  python3-bottle,
  resolvconf,
 Suggests:
- keel,
  tkl-installer,
 Description: TurnKey GNU/Linux Configuration Console (confconsole)
  Configuration Console (AKA confconsole) provides basic network information
