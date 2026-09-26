@@ -186,12 +186,14 @@ class TestNetworkMenuShowsIPv6:
 
         assert tc()._get_netmenu() == [("eth0", "2001:db8:1::10 (static) [*]")]
 
-    def test_ipv4_still_comes_first_when_present(self, tc, net_stubs):
+    def test_dual_stack_lists_ipv6_then_ipv4(self, tc, net_stubs):
         net_stubs["ipconf"] = ("192.0.2.10", "255.255.255.0", "192.0.2.1", [])
         net_stubs["ipv6conf"] = ("2001:db8:1::10", "64")
         net_stubs["methods"] = {"inet": "dhcp", "inet6": "static"}
 
-        assert tc()._get_netmenu() == [("eth0", "192.0.2.10 (dhcp) [*]")]
+        assert tc()._get_netmenu() == [
+            ("eth0", "2001:db8:1::10 (static), 192.0.2.10 (dhcp) [*]")
+        ]
 
     def test_no_address_at_all_is_not_configured(self, tc, net_stubs):
         assert tc()._get_netmenu() == [("eth0", "not configured")]

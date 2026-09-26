@@ -17,6 +17,7 @@ import subprocess
 from subprocess import CalledProcessError
 import getopt
 import ipaddress
+import re
 import shlex
 from string import Template
 from io import StringIO
@@ -32,7 +33,7 @@ import ifutil
 import conf
 import plugin
 
-from typing import NoReturn, Iterable, Any
+from typing import NoReturn, Iterable, Mapping, Any
 
 USAGE: str = __doc__ if __doc__ else ""
 PLUGIN_PATH = os.path.join(
@@ -85,6 +86,102 @@ def format_fields(
         ix = (field_offset if field_offset is not None else l_length) + 1
         out.append((label, i + 1, 1, field, i + 1, ix, l_length, f_length))
     return out
+
+
+def _url_host_pattern(name: str) -> re.Pattern[str]:
+    """The placeholder `name` used as the host of a URL: `://$name` or
+    `://${name}`, not already inside brackets (`://[$name]` has no match
+    because the bracket separates `://` from `$`)."""
+    return re.compile(rf"://\$(?:{name}\b|\{{{name}\}})")
+
+
+def render_usage_line(
+    line: str, values: Mapping[str, str | None]
+) -> str | None:
+    """Substitute the placeholders of one line of a usage template.
+
+    Returns None when a placeholder of the line resolves to None, so the
+    caller drops the line: a template that lists both address families
+    shows only the lines of the family the adapter has. Names the mapping
+    does not know are left as they are (`Template.safe_substitute`), as
+    are `$$` and a lone `$`. An IPv6 value used as the host of a URL
+    (after `://`) is wrapped in brackets, `https://[2001:db8:1::10]:12321`,
+    unless the template already wrote them.
+    """
+    for name in Template(line).get_identifiers():
+        if name not in values:
+            continue
+        value = values[name]
+        if value is None:
+            return None
+        if ":" in value:
+            line = _url_host_pattern(name).sub(f"://[${{{name}}}]", line)
+    return Template(line).safe_substitute(values)
+
+
+def ipv6_lines(ipaddr6: str, web: bool) -> str:
+    """The compact IPv6 block for a template that has no `$ipaddr6`."""
+    text = f"IPv6 Web:  https://[{ipaddr6}]\n" if web else ""
+    return text + f"IPv6 SSH:  root@{ipaddr6}"
+
+
+def render_usage(
+    template: str,
+    ipaddr6: str | None,
+    ipaddr: str | None,
+    **names: str,
+) -> str:
+    """Render the usage text of the default adapter, IPv6 first.
+
+    `$ipaddr6` is the global IPv6 address of the adapter (the one
+    `ifutil.get_ipv6conf` ranks first: static before dynamic, privacy
+    addresses last) and `$ipaddr` its IPv4, or the public address from
+    `publicip_cmd`. Lines whose placeholder resolves to None are dropped,
+    so a template that lists both families shows one block on a single
+    stack adapter and both, in template order, on a dual stack one.
+
+    A template written for IPv4 only (`$ipaddr` without `$ipaddr6`) keeps
+    working: on an adapter without IPv4 the IPv6 address takes the place
+    of `$ipaddr`, bracketed where it is a URL host, and on a dual stack
+    adapter the IPv6 web and SSH lines precede the template text, so the
+    operator reads IPv6 first either way. Every other name (`$appname`,
+    `$hostname`) comes from `names`.
+    """
+    identifiers = Template(template).get_identifiers()
+    if ipaddr is None and "ipaddr6" not in identifiers:
+        ipaddr = ipaddr6
+    values: dict[str, str | None] = {
+        "ipaddr6": ipaddr6, "ipaddr": ipaddr, **names,
+    }
+    rendered = (
+        render_usage_line(line, values) for line in template.splitlines()
+    )
+    text = "\n".join(line for line in rendered if line is not None)
+    text = text.strip("\n")
+    if ipaddr6 and ipaddr6 not in text:
+        block = ipv6_lines(ipaddr6, web=template.startswith("Web"))
+        text = f"{block}\n\n{text}" if text else block
+    return text
+
+
+def describe_interface(
+    ipaddr6: str | None,
+    method6: str | None,
+    ipaddr: str | None,
+    method: str | None,
+) -> str:
+    """One line for the adapter list of the networking menu: the IPv6
+    address then the IPv4, each with its configuration method, or the
+    method once after both when it is the same (the menu is 65 columns
+    wide and a SLAAC address alone takes up to 39)."""
+    families = ((ipaddr6, method6), (ipaddr, method))
+    entries = [(a, m) for a, m in families if a]
+    if not entries:
+        return "not configured"
+    methods = [m for _, m in entries]
+    if len(entries) > 1 and methods[0] and len(set(methods)) == 1:
+        return ", ".join(a for a, _ in entries) + f" ({methods[0]})"
+    return ", ".join(f"{a} ({m})" if m else a for a, m in entries)
 
 
 WrapperReturn = str | tuple[str, str]
@@ -419,25 +516,21 @@ class TurnkeyConsole:
         menu = []
         for ifname in self._get_filtered_ifnames():
             log.debug("found ifname: %s", ifname)
+            addr6 = ifutil.get_ipv6conf(ifname)[0]
+            ifmethod6 = ifutil.get_ifmethod(ifname, "inet6")
+            log.debug(
+                "ifname '%s' ipv6 addr: %s ifmethod: %s",
+                ifname, addr6, ifmethod6,
+            )
             addr = ifutil.get_ipconf(ifname)[0]
-            log.debug("ifname '%s' addr: %s", ifname, addr)
             ifmethod = ifutil.get_ifmethod(ifname)
-            log.debug("ifname '%s' ifmethod: %s", ifname, ifmethod)
-            if not addr:
-                # no IPv4: an interface with a global IPv6 is configured
-                addr = ifutil.get_ipv6conf(ifname)[0]
-                ifmethod = ifutil.get_ifmethod(ifname, "inet6")
-                log.debug("ifname '%s' ipv6 addr: %s", ifname, addr)
+            log.debug(
+                "ifname '%s' addr: %s ifmethod: %s", ifname, addr, ifmethod
+            )
 
-            if addr:
-                desc = addr
-                if ifmethod:
-                    desc += f" ({ifmethod})"
-
-                if ifname == self._get_default_nic():
-                    desc += " [*]"
-            else:
-                desc = "not configured"
+            desc = describe_interface(addr6, ifmethod6, addr, ifmethod)
+            if (addr6 or addr) and ifname == self._get_default_nic():
+                desc += " [*]"
 
             menu.append((ifname, desc))
 
@@ -553,35 +646,30 @@ class TurnkeyConsole:
             )
         log.info(tklbam_status)
 
-        # display usage
+        # display usage, IPv6 first
+        ipv6_addr = ifutil.get_ipv6conf(ifname)[0]
         ip_addr = self._get_public_ipaddr()
         if not ip_addr:
             ip_addr = ifutil.get_ipconf(ifname)[0]
-        ipv6_addr, ipv6_prefix = ifutil.get_ipv6conf(ifname)
         hostname = netinfo.get_hostname().upper()
 
         try:
             with open(conf.path("services.txt")) as fob:
-                t = fob.read().rstrip()
-                text = Template(t).safe_substitute(
-                    appname=self.appname,
-                    hostname=hostname,
-                    ipaddr=ip_addr,
-                )
+                template = fob.read().rstrip()
         except conf.ConfconsoleConfError:
-            t = ""
-            text = Template(t).safe_substitute(ipaddr=ip_addr)
+            template = ""
+        text = render_usage(
+            template,
+            ipv6_addr,
+            ip_addr,
+            appname=self.appname,
+            hostname=hostname,
+        )
 
-        log_msg = f"Usage started - hostname: {hostname} ip: {ip_addr}"
-
-        if ipv6_addr:
-            text += "\n"
-            if t.startswith("Web"):
-                text += f"\nIPv6 Web:  https://[{ipv6_addr}]"
-            text += f"\nIPv6 SSH:  root@{ipv6_addr}"
-            log_msg = log_msg + f" ipv6: {ipv6_addr}"
-
-        log.info(log_msg)
+        log.info(
+            f"Usage started - hostname: {hostname} ipv6: {ipv6_addr}"
+            f" ip: {ip_addr}"
+        )
         gap = self.height - len(text.splitlines()) - 11
         gap = gap if gap >= 1 else 1
 

@@ -1,3 +1,9 @@
+Web:       http://[$ipaddr6]
+           https://[$ipaddr6]
+Web shell: https://[$ipaddr6]:12320
+Webmin:    https://[$ipaddr6]:12321
+SSH/SFTP:  root@$ipaddr6 (port 22)
+
 Web:       http://$ipaddr
            https://$ipaddr
 Web shell: https://$ipaddr:12320
