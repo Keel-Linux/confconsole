@@ -1,0 +1,17 @@
+name: tests
+on:
+  pull_request:
+  push:
+    branches: [master]
+jobs:
+  tests:
+    # Baseline (COVERAGE.md, 2026-09-26): 0 percent measured, no test on
+    # master. confconsole is Python, but test-python.yml cannot run
+    # without a test file (pytest exits 5 when it collects nothing), so
+    # the check is created with the test-shell.yml bootstrap placeholder.
+    # The pull request that adds the first test switches this job to
+    # test-python.yml and sets the threshold to the measured number; the
+    # threshold is only ever raised (decision 0006).
+    uses: keel-linux/.github/.github/workflows/test-shell.yml@main
+    with:
+      threshold: 0
