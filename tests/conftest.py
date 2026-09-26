@@ -172,14 +172,20 @@ iface eth0 inet6 static
 
 
 class FakeConsole:
-    """Answers form/yesno/msgbox from scripted queues, records calls."""
+    """Answers form/yesno/inputbox/msgbox from scripted queues, records
+    calls."""
 
     OK = "ok"
 
-    def __init__(self, forms=(), yesno=()):
+    def __init__(self, forms=(), yesno=(), inputs=()):
         self.forms = list(forms)
         self.yesnos = list(yesno)
+        self.inputs = list(inputs)
         self.calls = []
+
+    def inputbox(self, title, text, init="", **kwargs):
+        self.calls.append(("inputbox", title, text, init))
+        return self.inputs.pop(0)
 
     def form(self, title, text, fields, **kwargs):
         self.calls.append(("form", text, fields, kwargs))
