@@ -1,0 +1,120 @@
+"""Shared fixtures for the confconsole tests.
+
+confconsole is installed flat under /usr/lib/confconsole, so the modules
+are imported from the repository root. `netinfo` comes from the Debian
+package turnkey-netinfo, which is not on PyPI; when it is not importable a
+stub module with the same two names is registered so the parsers can be
+tested on any host. Nothing here touches the live system.
+"""
+
+import importlib
+import sys
+import types
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+STUB_HOSTNAME = "core"
+
+
+class FakeInterfaceInfo:
+    """Stand-in for netinfo.InterfaceInfo, controlled by the tests."""
+
+    address = None
+    netmask = None
+    gateway = None
+
+    def __init__(self, ifname):
+        self.ifname = ifname
+
+    def get_gateway(self, error=False):
+        return self.gateway
+
+
+def _install_netinfo_stub():
+    try:
+        importlib.import_module("netinfo")
+    except ModuleNotFoundError:
+        stub = types.ModuleType("netinfo")
+        stub.InterfaceInfo = FakeInterfaceInfo
+        stub.get_hostname = lambda: STUB_HOSTNAME
+        sys.modules["netinfo"] = stub
+
+
+_install_netinfo_stub()
+
+
+@pytest.fixture
+def ifutil():
+    import ifutil as module
+
+    return module
+
+
+@pytest.fixture
+def hostname(ifutil, monkeypatch):
+    """Pin the hostname the parsers insert, independent of the host."""
+    monkeypatch.setattr(ifutil, "get_hostname", lambda: STUB_HOSTNAME)
+    return STUB_HOSTNAME
+
+
+@pytest.fixture
+def interfaces_file(tmp_path):
+    """Write a scratch /etc/network/interfaces and return its path."""
+
+    def _write(text):
+        path = tmp_path / "interfaces"
+        path.write_text(text)
+        return str(path)
+
+    return _write
+
+
+UNCONFIGURED = """# UNCONFIGURED INTERFACES
+# remove the above line if you edit this file
+
+auto lo
+iface lo inet loopback
+
+auto eth0
+iface eth0 inet dhcp
+    hostname core
+
+iface eth0 inet6 dhcp
+    hostname core
+"""
+
+STATIC_V4 = """# UNCONFIGURED INTERFACES
+
+auto eth0
+iface eth0 inet static
+    address 192.0.2.10
+    netmask 255.255.255.0
+    gateway 192.0.2.1
+    dns-nameservers 2001:db8::53 192.0.2.53
+    hostname core
+    post-up /usr/local/bin/announce
+
+iface eth0 inet6 static
+    address 2001:db8:1::10
+    netmask 64
+    gateway 2001:db8:1::1
+"""
+
+MANUAL_HEADERLESS = """auto eth0
+iface eth0 inet manual
+"""
+
+INET6_ONLY = """# UNCONFIGURED INTERFACES
+
+auto eth0
+iface eth0 inet6 static
+    address 2001:db8:1::10
+    netmask 64
+    gateway 2001:db8:1::1
+    dns-nameservers 2001:db8::53
+"""

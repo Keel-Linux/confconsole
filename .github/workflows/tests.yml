@@ -5,13 +5,12 @@ on:
     branches: [master]
 jobs:
   tests:
-    # Baseline (COVERAGE.md, 2026-09-26): 0 percent measured, no test on
-    # master. confconsole is Python, but test-python.yml cannot run
-    # without a test file (pytest exits 5 when it collects nothing), so
-    # the check is created with the test-shell.yml bootstrap placeholder.
-    # The pull request that adds the first test switches this job to
-    # test-python.yml and sets the threshold to the measured number; the
-    # threshold is only ever raised (decision 0006).
-    uses: keel-linux/.github/.github/workflows/test-shell.yml@main
+    # Threshold 99: ifutil.py measures 99.21 percent (103 tests, lines and
+    # branches; the three missed lines are an unused inner function). The
+    # package list names the modules with tests; a module is appended as
+    # its tests land (COVERAGE.md plan) and the threshold is only ever
+    # raised (decision 0006). Baseline before the first test: 0 percent.
+    uses: keel-linux/.github/.github/workflows/test-python.yml@main
     with:
-      threshold: 0
+      threshold: 99
+      package: ifutil

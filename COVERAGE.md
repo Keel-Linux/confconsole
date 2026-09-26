@@ -42,27 +42,43 @@ data files and `release_notes/` are not code.
 ## How it is measured
 
 Python, from the repository root (`netinfo` comes from the Debian package
-`turnkey-netinfo`, which is not on PyPI; the tests provide a stub module
-so the parsers can be imported on any host):
+`turnkey-netinfo`, which is not on PyPI; `tests/conftest.py` registers a
+stub module with the same two names when the real one is not importable,
+so the parsers can be tested on any host):
 
-    PYTHONPATH=. python3 -m coverage run --branch --source=. -m pytest -q tests
+    PYTHONPATH=. python3 -m coverage run --branch --source=ifutil -m pytest -q tests
     python3 -m coverage report --show-missing
 
-Inherited modules without tests are listed under `omit` in
-`pyproject.toml` once it exists, one entry to remove per module as its
+`--source` names the modules that have tests; a module is appended as its
 tests land, so the reported number is the number of the files the tests
-actually exercise (same semantics as the shell gate). Shell, per decision
-0004: bats files under `tests/`, external commands (`dehydrated`,
+actually exercise (same semantics as the shell gate, which only reports
+files the tests execute). The caller `.github/workflows/tests.yml` passes
+the same list as `package:` to the reusable `test-python.yml` and the
+threshold as `threshold:`; the threshold is only ever raised. Shell, per
+decision 0004: bats files under `tests/`, external commands (`dehydrated`,
 `systemctl`, `curl`, `netstat`, `ip`, `ifup`) replaced by stubs first in
 PATH, kcov for the line count, `tests/coverage.sh` failing below
 `COVERAGE_THRESHOLD`.
 
-The gate is `.github/workflows/tests.yml`. On this branch it calls
-`test-shell.yml` with threshold 0, which passes with a bootstrap notice
-because nothing is measured yet; `test-python.yml` cannot run without a
-test file (pytest exits 5 when it collects nothing). The pull request that
-adds the first test switches the caller to `test-python.yml` and sets the
-threshold to the measured number. The threshold is only ever raised.
+The baseline pull request (#1) created the check with the `test-shell.yml`
+bootstrap placeholder at threshold 0, because `test-python.yml` cannot run
+without a test file (pytest exits 5 when it collects nothing); pull
+request #2 switched the caller to `test-python.yml` with the number below.
+
+## Measured on 2026-09-26 with the first tests
+
+| File | Tests | Stmts | Branches | Cover |
+|------|-------|-------|----------|-------|
+| ifutil.py | 103 (tests/test_ifutil_parse.py, test_ifutil_interfaces.py, test_ifutil_system.py) | 438 | 196 | 99.21 percent; 3 statements missed (lines 216 to 218, the inner function `format_value` of `_merge_iface_options`, which nothing calls); 0 partial branches |
+
+Threshold in the caller: 99. Every other file: 0 percent, no test.
+
+Two observations recorded while writing the tests, both left as they are
+because these tests change no behaviour: `_merge_iface_options` keeps an
+existing `hostname` line after the new one when both are given (the key
+is popped from the new options before the override check), and
+`format_value` is dead code. Both belong to the static IPv6 pull request
+(plan 04, section 3.2), which touches that function.
 
 ## Plan to reach 90 percent per file
 
@@ -71,7 +87,8 @@ large above). Addresses in fixtures are IPv6 wherever the code accepts
 them, for example `2001:db8:1::10/64` with gateway `2001:db8:1::1` and
 nameserver `2001:db8::53`.
 
-1. `ifutil.py` (663 lines, large). First because the static IPv6 writer
+1. `ifutil.py` (663 lines, large). Done on 2026-09-26 at 99.21 percent,
+   see the table above. First because the static IPv6 writer
    (plan 04, section 3.2) changes `NetworkInterfaces.set_static()`,
    `set_dhcp()`, `set_manual()`, `gen_default_if_config()` and the
    `inet_family` defaults, and no change lands there without a test.
