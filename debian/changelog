@@ -1,0 +1,18 @@
+confconsole (2.2.3+keel1) trixie; urgency=low
+
+  * ifutil: add the static IPv6 writer, NetworkInterfaces.set_static6 and
+    set_dhcp6 with the module wrappers set_static6, set_dhcp6 and get_ip6conf;
+    get_ipv6conf prefers a stable address over a temporary one.
+  * Networking menu: add the Static IPv6 entry (address/prefix, gateway,
+    name server), clearing every field restores inet6 dhcp.
+  * Usage screen: show IPv6 first, on the screen and in the adapter list.
+  * Add the tests: pytest for ifutil and the dialogs, with coverage checked
+    on every pull request.
+
+ -- Keel Linux maintainers <admin@keellinux.org>  Sat, 26 Sep 2026 14:58:05 +0000
+
+confconsole (2.2.3) UNRELEASED; urgency=low
+
+  * undocumented
+
+ --  Stefan Davis <stefan@turnkeylinux.org>  Tue, 21 Jul 2026 05:33:29 +0000
