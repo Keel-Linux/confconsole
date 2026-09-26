@@ -138,6 +138,41 @@ because `plugin.py` loads entries with `spec_from_file_location` and
 never adds the plugin directory to the import path; the root is already
 on it. `tests/conftest.py` gained `FakeConsole.inputbox`.
 
+## Measured on 2026-09-26 with the mark on the usage screen
+
+| File | Tests | Stmts | Branches | Cover |
+|------|-------|-------|----------|-------|
+| ifutil.py | 155 as above (unchanged file) | 551 | 230 | 100 percent, 0 missed, 0 partial |
+| keelbanner.py (new: which mark goes above the usage screen, and where) | 22 in tests/test_keelbanner.py: `terminal_size` (reported and fallback), `mark_size`, `fits` (too tall, too wide, empty), `read` (present and absent), `choose` (under the floor, full, small, none, a mark not installed), `above`, `added_rows` | 43 | 14 | 100 percent, 0 missed, 0 partial |
+| keelcli.py | 50 as above (unchanged file) | 104 | 16 | 100 percent, 0 missed, 0 partial |
+| plugins.d/Instance | 17 as above (unchanged file) | 52 | 4 | 100 percent, 0 missed, 0 partial |
+| confconsole.py | 63 in tests/test_confconsole_ifconf6.py and tests/test_confconsole_usage.py, the 6 new ones in `TestUsageMark` | 656 | 238 | 39 percent measured locally, up from 38; the touched lines (`usage`, `Console.msgbox`) have 0 missed and 0 partial |
+
+Total 307 tests. Threshold in the caller: 100, unchanged; the measured
+package is now `ifutil,keelbanner,keelcli,plugins.d/Instance`.
+
+The console is a brand surface, so the usage screen carries the mark the
+core overlay installs (`/etc/keel/banner.txt`, 38 by 19, and
+`/etc/keel/banner-small.txt`, 23 by 11), the same two files the login
+banner reads. The decision is a module of its own, `keelbanner.py`, next
+to `keelcli.py` and for the same reason: `plugin.py` loads entries with
+`spec_from_file_location` and never adds the plugin directory to the
+import path, and the repository root is already on it. `usage()` gained
+five lines that ask it for a mark and grow the box by what the mark
+takes; `Console.msgbox` gained an optional `height`, defaulting to the
+box height it always used.
+
+What the module enforces is the rule of the terminal surface: the mark
+never costs the screen a line of what it already says. It is dropped to
+the small mark, and then to nothing, before the usage text loses a row.
+A terminal under 24 rows gets no mark at all; with the usage box at 25
+rows the small mark needs 37 and the full mark 45, so an 80 by 24
+console and a narrow serial line both keep the screen exactly as it was.
+`tests/conftest.py` gained `FakeConsole.msgbox_kwargs` so a test can read
+the height the box was asked for, and the `usage_env` fixture pins the
+terminal size and the installed marks, so the existing usage tests do
+not depend on the host carrying `/etc/keel`.
+
 ## Plan to reach 90 percent per file
 
 Priority order (size: small under 30 lines of test, medium under 150,
@@ -180,7 +215,9 @@ nameserver `2001:db8::53`.
    `tests/conftest.py` and `tests/test_confconsole_ifconf6.py` as the
    pattern for the rest of the file. The usage template rendering
    followed the same day (`render_usage`, `render_usage_line`,
-   `describe_interface`, pure functions; `usage()` tested with stubs).
+   `describe_interface`, pure functions; `usage()` tested with stubs), and
+   the mark above it the same way (`keelbanner.py`, measured at 100
+   percent; `usage()` only asks it what fits).
    Left: `_ifconf_staticip._validate`, `_validip`, `_get_default_nic`,
    `_get_filtered_ifnames`, `_get_advmenu`, the installer and the loop.
 6. `plugins.d` Python, smallest first (the Instance directory is done,
