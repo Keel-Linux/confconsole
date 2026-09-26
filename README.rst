@@ -59,7 +59,8 @@ The Advanced menu provides the below functionality in all appliances
 
 - `Networking`_:
 
-  - Setting a static IP address
+  - Setting a static IPv6 address (address/prefix, gateway, name servers)
+  - Setting a static IPv4 address
   - Requesting DHCP
 
 - `Let's Encrypt`_:

@@ -5,12 +5,14 @@ on:
     branches: [master]
 jobs:
   tests:
-    # Threshold 99: ifutil.py measures 99.21 percent (103 tests, lines and
-    # branches; the three missed lines are an unused inner function). The
-    # package list names the modules with tests; a module is appended as
-    # its tests land (COVERAGE.md plan) and the threshold is only ever
-    # raised (decision 0006). Baseline before the first test: 0 percent.
+    # Threshold 100: ifutil.py measures 100 percent (175 tests, lines and
+    # branches) since the static IPv6 change. The package list names the
+    # modules with tests; a module is appended as its tests land
+    # (COVERAGE.md plan) and the threshold is only ever raised (decision
+    # 0006). Baseline before the first test: 0 percent. confconsole.py has
+    # tests (the static IPv6 dialog) but is not measured: as a whole it
+    # would not reach the threshold, see COVERAGE.md.
     uses: keel-linux/.github/.github/workflows/test-python.yml@main
     with:
-      threshold: 99
+      threshold: 100
       package: ifutil

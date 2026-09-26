@@ -7,7 +7,8 @@ Overview
 --------
 
 Networking allows the user to allocate a server IP address via DHCP
-(default) or set a static IP.
+(default) or set a static IPv6 or IPv4 address. The IPv6 and IPv4 settings
+of an adapter are independent: changing one leaves the other as it is.
 
 **IMPORTANT:** setting a static IP address on a cloud instance (e.g. AWS
 EC2) will break your server's internet access and may make it unreachable.
@@ -42,6 +43,32 @@ as follows:
 - Name Server(s): The IP address(es) of DNS servers to use. Currently
   allows up to 3.
 
+Static IPv6
+-----------
+
+Selecting **StaticIPv6** from the menu sets a static IPv6 address on the
+adapter and leaves the IPv4 configuration untouched:
+
+- IPv6 Address/Prefix: address and prefix length in one field, for
+  example ``2001:db8:1::10/64``. The prefix length is required; there is
+  no netmask field for IPv6.
+- IPv6 Gateway: optional. A link-local gateway such as ``fe80::1`` is
+  accepted (the usual case on a routed segment).
+- Name Server(s): IPv6 addresses of DNS servers, for example
+  ``2001:db8::53``. IPv4 entries are dropped from the IPv6 stanza; set them
+  in the StaticIP form instead.
+
+An IPv4 address typed in any of these fields is refused with a message
+pointing at the StaticIP form. Clearing every field and applying returns
+the adapter to the shipped default, ``inet6 dhcp`` (SLAAC and DHCPv6).
+
+The result is an ``iface eth0 inet6 static`` stanza in
+``/etc/network/interfaces``, next to the existing ``inet`` stanza; the
+``# UNCONFIGURED INTERFACES`` header is kept so Confconsole can edit the
+file again later. The adapter list and the usage screen show the global
+IPv6 address, so an adapter with only an IPv6 address is not reported as
+"not configured".
+
 Notes
 -----
 
@@ -54,7 +81,8 @@ survive reboot (see limitations below).
 Limitations
 -----------
 
-Only IPv4 addresses are currently supported.
+IPv6 support covers a static address, DHCP (SLAAC and DHCPv6) and
+display. Name servers on the IPv6 stanza are limited to IPv6 addresses.
 
 In most build types, by default TurnKey Linux sets an IP address via
 DHCP. The exceptions to that are Proxmox/LXC and Docker. Generally these
