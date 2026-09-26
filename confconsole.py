@@ -31,6 +31,7 @@ import netinfo
 import ipaddr
 import ifutil
 import conf
+import keelbanner
 import plugin
 
 from typing import NoReturn, Iterable, Mapping, Any
@@ -274,12 +275,15 @@ class Console:
         text: str,
         button_label: str = "ok",
         autosize: bool = False,
+        height: int | None = None,
     ) -> str:
+        # `height` overrides the default for a box that carries more than
+        # the usual text, such as the usage screen with the mark above it.
         if autosize:
             text += "\n "
             height, width = 0, 0
         else:
-            height, width = self.height, self.width
+            height, width = height or self.height, self.width
 
         v = self._wrapper(
             "msgbox", text, height, width, title=title, ok_label=button_label
@@ -678,10 +682,23 @@ class TurnkeyConsole:
         text += "         TurnKey Backups and Cloud Deployment\n"
         text += "             https://hub.turnkeylinux.org"
 
+        # The mark above the usage text, when the terminal has room for
+        # it over and above the rows the screen already uses: the box
+        # grows by what the mark takes, so not one line of what the
+        # appliance already says is lost, and the mark is dropped to the
+        # small one and then to nothing before that happens.
+        height = self.height
+        rows, cols = keelbanner.terminal_size()
+        mark = keelbanner.choose(rows, min(cols, self.width), height)
+        if mark is not None:
+            text = keelbanner.above(text, mark)
+            height += keelbanner.added_rows(mark)
+
         retcode = self.console.msgbox(
             f"{hostname} appliance services",
             text,
             button_label=default_button_label,
+            height=height,
         )
 
         if retcode is not self.OK:

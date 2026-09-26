@@ -182,6 +182,7 @@ class FakeConsole:
         self.yesnos = list(yesno)
         self.inputs = list(inputs)
         self.calls = []
+        self.msgbox_kwargs = {}
 
     def inputbox(self, title, text, init="", **kwargs):
         self.calls.append(("inputbox", title, text, init))
@@ -197,6 +198,7 @@ class FakeConsole:
 
     def msgbox(self, title, text, **kwargs):
         self.calls.append(("msgbox", title, text))
+        self.msgbox_kwargs = kwargs
         return self.OK
 
     def infobox(self, text):

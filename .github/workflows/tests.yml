@@ -5,14 +5,15 @@ on:
     branches: [master]
 jobs:
   tests:
-    # Threshold 100: ifutil.py, keelcli.py and the Instance menu entries
-    # measure 100 percent (279 tests, lines and branches). The package list
-    # names the modules with tests; a module is appended as its tests land
-    # (COVERAGE.md plan) and the threshold is only ever raised (decision
-    # 0006). Baseline before the first test: 0 percent. confconsole.py has
-    # tests (the static IPv6 dialog, the usage screen) but is not measured:
-    # as a whole it would not reach the threshold, see COVERAGE.md.
+    # Threshold 100: ifutil.py, keelcli.py, keelbanner.py and the Instance
+    # menu entries measure 100 percent (307 tests, lines and branches). The
+    # package list names the modules with tests; a module is appended as
+    # its tests land (COVERAGE.md plan) and the threshold is only ever
+    # raised (decision 0006). Baseline before the first test: 0 percent.
+    # confconsole.py has tests (the static IPv6 dialog, the usage screen,
+    # the mark above it) but is not measured: as a whole it would not reach
+    # the threshold, see COVERAGE.md.
     uses: keel-linux/.github/.github/workflows/test-python.yml@main
     with:
       threshold: 100
-      package: ifutil,keelcli,plugins.d/Instance
+      package: ifutil,keelbanner,keelcli,plugins.d/Instance
