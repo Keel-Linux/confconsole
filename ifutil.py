@@ -210,13 +210,6 @@ def _merge_iface_options(
     except KeyError:
         new_hostname = None
 
-    def format_value(v: str | list[str]) -> str:
-        # convert value lists to space separated string.
-        # E.g. join list of nameservers
-        if isinstance(v, list):
-            return " ".join(v)
-        return str(v)
-
     # new/updated values go first
     final_list = []
     for k, v in new_opts.items():
@@ -227,8 +220,11 @@ def _merge_iface_options(
 
     # then existing lines, skipping any whose key we've already replaced
     for opt in current_opts:
-        if opt[0] == "hostname" and not new_hostname:
-            new_hostname = opt[1]
+        if opt[0] == "hostname":
+            # a single hostname line: the new one wins, else the current one
+            # is kept (re-inserted first below)
+            if not new_hostname:
+                new_hostname = opt[1]
             continue
         elif opt[0] in new_opts:
             continue  # new value override already set
