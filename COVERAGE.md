@@ -151,6 +151,32 @@ on it. `tests/conftest.py` gained `FakeConsole.inputbox`.
 Total 307 tests. Threshold in the caller: 100, unchanged; the measured
 package is now `ifutil,keelbanner,keelcli,plugins.d/Instance`.
 
+## Measured on 2026-09-27 with the database mode screens
+
+| File | Tests | Stmts | Branches | Cover |
+|------|-------|-------|----------|-------|
+| keelcli.py | 50 as before plus 33 in tests/test_database_mode.py: the description each role builds, reading and staging and committing and discarding it, the refusal read out of what apply printed, the question that confirms it, and the three screen texts | 196 | 26 | 100 percent, 0 missed, 0 partial |
+| dbscreen.py (new: the dialog flow the three mode screens share) | 30 in tests/test_database_mode.py: the form and its defaults, the engine from the description and from the machine, stage then validate then commit then apply, every way each step can fail, and the one question whose Yes loses data | 87 | 32 | 100 percent, 0 missed, 0 partial |
+| plugins.d/Instance | 17 as before plus 3 on the menu itself and 16 on the four new screens | 90 | 14 | 100 percent, 0 missed, 0 partial |
+| ifutil.py, keelbanner.py | unchanged | 594 | 244 | 100 percent, 0 missed, 0 partial |
+
+Total **379 tests**, 100 percent over the measured package, which is now
+`ifutil,keelbanner,keelcli,dbscreen,plugins.d/Instance`. Threshold in the
+caller: 100, unchanged.
+
+The screens hold no decision of their own. Each one says what its role is
+and which fields it needs; `dbscreen` collects them, writes them into the
+instance description and hands it to `keel`, and every refusal on the
+screen is keel's own words rather than the console's. That is what keeps
+the console and the headless path the same code path: what the operator
+gets from Cloud / Replica is what `keel spec apply --system-only` does,
+including its refusal to replace a database that holds data.
+
+`dbscreen.py` lives at the package root next to `keelcli.py`, for the
+reason given below: `plugin.py` loads entries with
+`spec_from_file_location` and never adds the plugin directory to the
+import path, and the repository root is already on it.
+
 The console is a brand surface, so the usage screen carries the mark the
 core overlay installs (`/etc/keel/banner.txt` and
 `/etc/keel/banner-small.txt`), the same two files the login banner
@@ -178,17 +204,16 @@ not depend on the host carrying `/etc/keel`.
 
 | File | Tests | Stmts | Branches | Cover |
 |------|-------|-------|----------|-------|
-| ifutil.py | 155 as above (unchanged file) | 551 | 230 | 100 percent, 0 missed, 0 partial |
 | keelbanner.py | 41 in tests/test_keelbanner.py, up from 22: the 11 in `TestCenter` (an odd and an even leftover, a mark wider than the width, a mark exactly the width, a blank line, a line of spaces, trailing whitespace in the art, no trailing whitespace on the block, one indent for every line, the row count, plain ASCII), `inner_width` (the frame, and the width `fits` and `center` share), `mark_size` on blocks of several shapes including ragged and empty, and the fallback ladder on a shrinking screen | 52 | 16 | 100 percent, 0 missed, 0 partial |
-| keelcli.py | 50 as above (unchanged file) | 104 | 16 | 100 percent, 0 missed, 0 partial |
-| plugins.d/Instance | 17 as above (unchanged file) | 52 | 4 | 100 percent, 0 missed, 0 partial |
+| ifutil.py, keelcli.py, dbscreen.py, plugins.d/Instance | unchanged files | 924 | 302 | 100 percent, 0 missed, 0 partial |
 | confconsole.py | 68 in tests/test_confconsole_ifconf6.py and tests/test_confconsole_usage.py, the 8 in `TestUsageMark` | 658 | 238 | 39 percent measured locally, unchanged; the touched lines (`usage`) have 0 missed and 0 partial |
 
-Total 328 tests, up from 307. Threshold in the caller: 100, unchanged;
-the measured package is unchanged. Command:
+Total 400 tests, up from 379. Threshold in the caller: 100, unchanged, and
+so is the measured package. Command:
 
     PYTHONPATH=. python3 -m coverage run --branch \
-      --source=ifutil,keelbanner,keelcli,plugins.d/Instance -m pytest -q tests
+      --source=ifutil,keelbanner,keelcli,dbscreen,plugins.d/Instance \
+      -m pytest -q tests
     python3 -m coverage report --show-missing
 
 Two defects were fixed. The mark was prepended as it was read, so it sat
