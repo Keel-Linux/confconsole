@@ -76,6 +76,25 @@ def rows_for(mark_rows: int, keelbanner) -> int:
     return mark_rows + keelbanner.SEPARATOR_ROWS + USAGE_ROWS
 
 
+def margins(block: str, width: int) -> tuple[int, int]:
+    """The blank columns on each side of `block` inside `width`.
+
+    Both are read off the block itself rather than recomputed from the
+    mark it came from, so a test that uses this proves where the block
+    landed instead of agreeing with whatever the indent happened to be.
+    """
+    drawn = [line for line in block.split("\n") if line.strip()]
+    left = min(len(line) - len(line.lstrip(" ")) for line in drawn)
+    return left, width - max(len(line) for line in drawn)
+
+
+def drawn_mark(rows: int, cols: int) -> str:
+    """A mark of exactly `rows` by `cols`, ragged so its widest line is
+    the last one. A test may ask for any size with this, including one
+    no art has ever had and none is planned to have."""
+    return "\n".join(["#"] * (rows - 1) + ["#" * cols]) + "\n"
+
+
 class TestTerminalSize:
     def test_reads_the_size_the_terminal_reports(
         self, keelbanner, monkeypatch
@@ -277,6 +296,85 @@ class TestCenter:
 
         assert centred.isascii()
         assert "\x1b" not in centred
+
+    @pytest.mark.parametrize("width", [19, 20, 21, 22, 40, 61, 200])
+    def test_the_block_stands_in_the_middle_of_the_width(
+        self, keelbanner, width
+    ):
+        # Arrange: a mark of this file's own whose widest line is neither
+        # the first nor the last, and one of whose lines is indented in
+        # the art, so an indent taken from the wrong line, or applied line
+        # by line, comes out lopsided here
+        mark = "/\\\n/================\\\n\n        ||\n"
+
+        # Act
+        centred = keelbanner.center(mark, width)
+
+        # Assert: the margins are equal, or the one odd column is left
+        # over on the right
+        left, right = margins(centred, width)
+        assert 0 <= right - left <= 1
+
+
+class TestAnUnanticipatedSize:
+    """A mark of a size nobody planned for.
+
+    The art above the usage screen is redrawn in another repository, and
+    the next drawing is smaller than this one. Nothing here is told a
+    size: each case makes a mark of its own, and every expectation is
+    derived from the size that mark measures.
+    """
+
+    @pytest.mark.parametrize(
+        "rows, cols", [(1, 1), (2, 3), (7, 24), (12, 38), (31, 71), (44, 7)]
+    )
+    def test_it_is_measured_chosen_and_centred_whatever_its_size(
+        self, keelbanner, tmp_path, rows, cols
+    ):
+        # Arrange: the mark on disk, and the smallest terminal it fits in
+        # with nine columns to spare
+        path = tmp_path / "banner.txt"
+        path.write_text(drawn_mark(rows, cols))
+        terminal_cols = cols + keelbanner.FRAME + 9
+        terminal_rows = rows_for(rows, keelbanner)
+
+        # Act
+        chosen = keelbanner.choose(
+            terminal_rows, terminal_cols, USAGE_ROWS, (str(path),)
+        )
+        width = keelbanner.inner_width(terminal_cols)
+        centred = keelbanner.center(chosen, width)
+
+        # Assert: measured, not assumed; centred; and costing the box only
+        # its own rows and the blank line under it
+        assert keelbanner.mark_size(chosen) == (rows, cols)
+        assert keelbanner.mark_size(centred)[0] == rows
+        left, right = margins(centred, width)
+        assert 0 <= right - left <= 1
+        assert keelbanner.added_rows(chosen) == (
+            rows + keelbanner.SEPARATOR_ROWS
+        )
+
+    @pytest.mark.parametrize(
+        "rows, cols", [(1, 1), (2, 3), (7, 24), (12, 38), (31, 71), (44, 7)]
+    )
+    def test_one_row_or_one_column_short_and_the_usage_screen_wins(
+        self, keelbanner, tmp_path, rows, cols
+    ):
+        # Arrange
+        path = tmp_path / "banner.txt"
+        path.write_text(drawn_mark(rows, cols))
+        paths = (str(path),)
+        tall = rows_for(rows, keelbanner)
+        wide = cols + keelbanner.FRAME
+        # the room, not the floor under the usage screen, is what decides
+        assert tall - 1 >= keelbanner.MIN_ROWS
+
+        # Act and Assert: it fits exactly, and neither one row nor one
+        # column less leaves the usage text a line shorter
+        assert keelbanner.choose(tall, wide, USAGE_ROWS, paths) is not None
+        assert keelbanner.choose(tall, wide - 1, USAGE_ROWS, paths) is None
+        assert keelbanner.choose(tall - 1, wide, USAGE_ROWS, paths) is None
 
 
 class TestRead:

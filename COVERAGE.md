@@ -204,11 +204,11 @@ not depend on the host carrying `/etc/keel`.
 
 | File | Tests | Stmts | Branches | Cover |
 |------|-------|-------|----------|-------|
-| keelbanner.py | 41 in tests/test_keelbanner.py, up from 22: the 11 in `TestCenter` (an odd and an even leftover, a mark wider than the width, a mark exactly the width, a blank line, a line of spaces, trailing whitespace in the art, no trailing whitespace on the block, one indent for every line, the row count, plain ASCII), `inner_width` (the frame, and the width `fits` and `center` share), `mark_size` on blocks of several shapes including ragged and empty, and the fallback ladder on a shrinking screen | 52 | 16 | 100 percent, 0 missed, 0 partial |
+| keelbanner.py | 60 in tests/test_keelbanner.py, up from 22: the 18 in `TestCenter` (an odd and an even leftover, a mark wider than the width, a mark exactly the width, a blank line, a line of spaces, trailing whitespace in the art, no trailing whitespace on the block, one indent for every line, the row count, plain ASCII, and the margins read off the block at seven widths), the 12 in `TestAnUnanticipatedSize` (marks from one character to 31 by 71, each measured, centred and costing the box only its own rows, and each dropped a row or a column short), `inner_width` (the frame, and the width `fits` and `center` share), `mark_size` on blocks of several shapes including ragged and empty, and the fallback ladder on a shrinking screen | 52 | 16 | 100 percent, 0 missed, 0 partial |
 | ifutil.py, keelcli.py, dbscreen.py, plugins.d/Instance | unchanged files | 924 | 302 | 100 percent, 0 missed, 0 partial |
 | confconsole.py | 68 in tests/test_confconsole_ifconf6.py and tests/test_confconsole_usage.py, the 8 in `TestUsageMark` | 658 | 238 | 39 percent measured locally, unchanged; the touched lines (`usage`) have 0 missed and 0 partial |
 
-Total 400 tests, up from 379. Threshold in the caller: 100, unchanged, and
+Total 419 tests, up from 379. Threshold in the caller: 100, unchanged, and
 so is the measured package. Command:
 
     PYTHONPATH=. python3 -m coverage run --branch \
