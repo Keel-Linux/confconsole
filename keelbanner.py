@@ -2,18 +2,22 @@
 
 The console is a brand surface: an operator meets a Keel appliance on the
 container console or over SSH long before any web page. The mark is
-installed by the core overlay as ``/etc/keel/banner.txt`` (38 by 19) and
-``/etc/keel/banner-small.txt`` (23 by 11), the same two files the login
-banner (``/etc/update-motd.d/00-keel-banner``) reads, both plain ASCII
-with no colour escape so a serial console and a recovery shell render
-them.
+installed by the core overlay as ``/etc/keel/banner.txt`` and
+``/etc/keel/banner-small.txt``, the same two files the login banner
+(``/etc/update-motd.d/00-keel-banner``) reads, both plain ASCII with no
+colour escape so a serial console and a recovery shell render them.
 
-This module decides which of the two, if either, goes above the usage
-text, and puts it there. It opens no dialog and formats no address: the
-usage text is rendered by ``confconsole.render_usage`` and is not touched.
-The rule it enforces is the identity's: the mark never costs the screen a
-line of what it already says, so it is dropped to the small one, and then
-to nothing, rather than pushing the addresses out of the box.
+How many rows and columns a mark takes is whatever the installed files
+carry: the art is drawn in the overlay and redrawn there, and nothing
+here assumes a size. This module measures the file it reads, decides which
+of the two marks, if either, goes above the usage text, centres it on the
+width the dialog leaves inside its frame and puts it there. It opens no
+dialog and formats no address: the usage text is rendered by
+``confconsole.render_usage``, is left as it is and is never centred.
+
+The rule the module enforces is the identity's: the mark never costs the
+screen a line of what it already says, so it is dropped to the small one,
+and then to nothing, rather than pushing the addresses out of the box.
 """
 
 import shutil
@@ -46,6 +50,16 @@ def mark_size(mark: str) -> tuple[int, int]:
     return len(lines), max((len(line) for line in lines), default=0)
 
 
+def inner_width(cols: int) -> int:
+    """The columns a terminal of `cols` leaves inside the dialog frame.
+
+    One definition, used by `fits` to decide whether a mark is too wide
+    and by the caller to centre it, so the width the mark is measured
+    against and the width it is centred on can never disagree.
+    """
+    return cols - FRAME
+
+
 def fits(mark: str, rows: int, cols: int, used_rows: int) -> bool:
     """Whether `mark` fits above a box of `used_rows` rows in a terminal
     of `rows` by `cols`, the blank line between them counted. An empty
@@ -53,7 +67,7 @@ def fits(mark: str, rows: int, cols: int, used_rows: int) -> bool:
     mark_rows, mark_cols = mark_size(mark)
     if mark_rows == 0:
         return False
-    if mark_cols > cols - FRAME:
+    if mark_cols > inner_width(cols):
         return False
     return mark_rows + SEPARATOR_ROWS + used_rows <= rows
 
@@ -95,6 +109,25 @@ def choose(
         if fits(mark, rows, cols, used_rows):
             return mark
     return None
+
+
+def center(mark: str, width: int) -> str:
+    """`mark` shifted right so the block sits centred in `width` columns.
+
+    The block is centred, not each line: one indent, the same for every
+    line, because padding the lines one by one would destroy the mark's
+    internal alignment. The indent is measured from the widest line of
+    whatever art was installed, so a mark as wide as `width`, or wider,
+    is shifted by nothing and is never truncated. No line of the block
+    carries trailing whitespace, and a blank line in the mark stays blank
+    rather than becoming a line of spaces.
+    """
+    indent = " " * max(0, (width - mark_size(mark)[1]) // 2)
+    lines = []
+    for row in mark.split("\n"):
+        line = row.rstrip()
+        lines.append(indent + line if line else "")
+    return "\n".join(lines)
 
 
 def above(text: str, mark: str) -> str:

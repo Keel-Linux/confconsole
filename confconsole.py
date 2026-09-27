@@ -686,12 +686,17 @@ class TurnkeyConsole:
         # it over and above the rows the screen already uses: the box
         # grows by what the mark takes, so not one line of what the
         # appliance already says is lost, and the mark is dropped to the
-        # small one and then to nothing before that happens.
+        # small one and then to nothing before that happens. The mark is
+        # centred on the columns the box leaves inside its frame, the
+        # same width keelbanner measures it against; the usage text keeps
+        # its own left margin.
         height = self.height
         rows, cols = keelbanner.terminal_size()
-        mark = keelbanner.choose(rows, min(cols, self.width), height)
+        cols = min(cols, self.width)
+        mark = keelbanner.choose(rows, cols, height)
         if mark is not None:
-            text = keelbanner.above(text, mark)
+            centred = keelbanner.center(mark, keelbanner.inner_width(cols))
+            text = keelbanner.above(text, centred)
             height += keelbanner.added_rows(mark)
 
         retcode = self.console.msgbox(
