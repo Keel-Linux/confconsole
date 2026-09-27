@@ -13,6 +13,8 @@ import os
 import subprocess
 from dataclasses import dataclass
 
+import yaml
+
 KEEL = "keel"
 DEFAULT_SPEC = "/etc/keel/instance.yaml"
 DEFAULT_EXPORT = "/root/instance.yaml"
@@ -27,6 +29,8 @@ SECRET_ERROR = 4
 CONF_ERROR = 5
 INSPECT_INCOMPLETE = 13
 DRIFT_FOUND = 14
+APPLY_NEEDS_ROOT = 15
+APPLY_FAILED = 16
 
 COMMON_MESSAGES = {
     OK: "done",
@@ -37,6 +41,9 @@ COMMON_MESSAGES = {
     SECRET_ERROR: "a referenced secret is missing or is readable by somebody"
     " other than its owner",
     CONF_ERROR: "the conf file cannot be written",
+    APPLY_NEEDS_ROOT: "this must run as root on the live system",
+    APPLY_FAILED: "at least one field was not converged; the output above"
+    " names it, and a refusal is one of the reasons it can say",
 }
 
 COMMAND_MESSAGES = {
@@ -48,6 +55,12 @@ COMMAND_MESSAGES = {
         " observed",
         DRIFT_FOUND: "drift found: at least one declared field differs on"
         " the machine",
+    },
+    "promote": {
+        OK: "this node is a primary now; the description still says"
+        " replica, which keel diff reports as drift until you change it",
+        APPLY_FAILED: "nothing was promoted; the reason is above",
+        APPLY_NEEDS_ROOT: "promoting must run as root",
     },
     "inspect": {
         OK: "spec written; every required field was inferred",
@@ -231,4 +244,212 @@ def export_text(
         f"spec: {output}\nreport: {report}\n\n"
         f"{(report_text + result.output).strip()}\n\n"
         f"{describe_exit('inspect', result.code)}"
+    )
+
+
+# --- the database mode screens -------------------------------------------
+#
+# Decision 0013: choosing a database appliance means choosing its mode, and
+# the mode choice leads to a screen that configures **this node only**. The
+# screens collect what this node needs, write it into the instance
+# description and hand the description to keel; every decision about what a
+# role means, and every refusal, is keel's (docs/apply.md). Nothing below
+# opens a dialog, and nothing below configures anybody else's machine.
+
+DEFAULT_SECRET = "/etc/keel/secrets/replication_password"
+DEFAULT_LISTEN = "::1, 127.0.0.1"
+STANDALONE = "standalone"
+PRIMARY = "primary"
+REPLICA = "replica"
+NO_FAILOVER = (
+    "This replication has NO AUTOMATIC FAILOVER. If the primary stops, no"
+    " node takes over by itself: promoting a replica is something you do,"
+    " on that replica, from this menu. Replication without failover is not"
+    " high availability."
+)
+THIS_NODE = (
+    "This screen configures THIS node only. It does not create replicas,"
+    " does not change any other machine, and cannot know what the others"
+    " are doing."
+)
+APPLY = ["spec", "apply", "--system-only", "--non-interactive"]
+DESTROY = "--destroy-local-database"
+REFUSED = "refused: "
+STAGED = ".keelcli-new"
+
+
+def load_spec(path: str) -> tuple[dict, str]:
+    """The description as a mapping, or an empty one and what went wrong"""
+    try:
+        with open(path) as fob:
+            document = yaml.safe_load(fob) or {}
+    except OSError as error:
+        return {}, f"{path}: {error.strerror}"
+    except yaml.YAMLError as error:
+        return {}, f"{path}: not valid YAML: {error}"
+    if not isinstance(document, dict):
+        return {}, f"{path}: the description is not a mapping"
+    return document, ""
+
+
+def server_of(document: dict) -> dict:
+    """What the description says this node's server is, if anything"""
+    database = document.get("database") or {}
+    return (database.get("server") or {}) if isinstance(database, dict) else {}
+
+
+def with_server(document: dict, server: dict) -> dict:
+    """A new description with `database.server` replaced
+
+    A copy, never an edit in place: the caller keeps what it loaded, so a
+    screen that is cancelled or whose description fails validation leaves
+    the file and the loaded document exactly as they were.
+    """
+    database = dict(document.get("database") or {})
+    database["server"] = server
+    return {**document, "database": database}
+
+
+def addresses(text: str) -> list[str]:
+    """The listen field as the operator typed it: a list of literals"""
+    return [
+        one.strip()
+        for one in text.replace(",", " ").split()
+        if one.strip()
+    ]
+
+
+def standalone_server(engine: str, listen: str) -> dict:
+    """One server, answering where it is told and replicating nothing"""
+    server = {"engine": engine, "role": STANDALONE}
+    if addresses(listen):
+        server["listen"] = addresses(listen)
+    return server
+
+
+def primary_server(
+    engine: str, listen: str, allowed_from: str, secret: str
+) -> dict:
+    """Other nodes may replicate from this one, from these origins"""
+    server = standalone_server(engine, listen)
+    server["role"] = PRIMARY
+    server["replication"] = {
+        "allowed_from": addresses(allowed_from),
+        "secret": {"file": secret.strip()},
+    }
+    return server
+
+
+def replica_server(
+    engine: str, listen: str, host: str, port: str, secret: str
+) -> dict:
+    """This node replicates from that one"""
+    server = standalone_server(engine, listen)
+    server["role"] = REPLICA
+    endpoint: dict = {"host": host.strip()}
+    if port.strip():
+        digits = port.strip()
+        endpoint["port"] = int(digits) if digits.isdigit() else digits
+    server["replication"] = {
+        "primary": endpoint,
+        "secret": {"file": secret.strip()},
+    }
+    return server
+
+
+def render_spec(document: dict) -> str:
+    """The description as it will be written, keys in the order given"""
+    return yaml.safe_dump(document, sort_keys=False, default_flow_style=False)
+
+
+def staged_path(path: str) -> str:
+    return path + STAGED
+
+
+def stage_spec(document: dict, path: str) -> tuple[str, str]:
+    """Write the new description beside the old one, root only
+
+    Beside and not over: what the operator typed is handed to `keel spec
+    validate` before it becomes the description this machine boots from,
+    so a value that would not load cannot replace one that does. The
+    screen commits it or throws it away.
+    """
+    staged = staged_path(path)
+    try:
+        descriptor = os.open(
+            staged, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600
+        )
+        with os.fdopen(descriptor, "w") as fob:
+            fob.write(render_spec(document))
+    except OSError as error:
+        return staged, f"{staged}: {error.strerror}"
+    return staged, ""
+
+
+def commit_spec(staged: str, path: str) -> str:
+    """Move the staged description into place; the reason on failure"""
+    try:
+        os.replace(staged, path)
+    except OSError as error:
+        return f"{path}: {error.strerror}"
+    return ""
+
+
+def discard_spec(staged: str) -> None:
+    """Throw away a staged description that will not be used"""
+    try:
+        os.unlink(staged)
+    except OSError:
+        pass
+
+
+def destroy_question(refusal: str) -> str:
+    """The one question in this menu whose Yes loses data"""
+    return (
+        f"keel refused to build the replica:\n\n{refusal}\n\n"
+        "Drop those databases and build the replica? Everything in them"
+        " is lost, on this node, and cannot be undone. Answer No to"
+        " leave this machine exactly as it is."
+    )
+
+
+def was_refused(result: Result) -> str:
+    """What keel refused to do, if it refused something
+
+    apply prints one line per action, and a refusal is the line that says
+    so. The console repeats keel's own words rather than inventing its
+    own: the refusal an operator confirms has to be the refusal that was
+    made.
+    """
+    for line in result.output.splitlines():
+        _, marker, reason = line.partition(REFUSED)
+        if marker and reason.strip():
+            return reason.strip()
+    return ""
+
+
+def mode_text(server: dict, path: str, result: Result) -> str:
+    """The screen an operator reads after a mode was applied"""
+    role = str(server.get("role", "?"))
+    return (
+        f"{path}: database.server.role: {role}\n\n"
+        f"$ {result.command}\n{result.output}\n\n"
+        f"{describe_exit('apply', result.code)}\n\n{NO_FAILOVER}"
+    )
+
+
+def invalid_text(path: str, result: Result) -> str:
+    """The screen when what was typed does not make a valid description"""
+    return (
+        f"{path} was NOT changed: the values would not make a valid"
+        f" description.\n\n$ {result.command}\n{result.output}\n\n"
+        f"{describe_exit('validate', result.code)}"
+    )
+
+
+def promote_text(result: Result) -> str:
+    """The screen an operator reads after promoting this replica"""
+    return (
+        f"$ {result.command}\n{result.output}\n\n"
+        f"{describe_exit('promote', result.code)}\n\n{NO_FAILOVER}"
     )

@@ -59,18 +59,56 @@ def messages(console):
     return [call for call in console.calls if call[0] == "msgbox"]
 
 
+MODE_ENTRIES = [
+    "Database_mode/01Standalone.py",
+    "Database_mode/Cloud/01Primary.py",
+    "Database_mode/Cloud/02Replica.py",
+    "Database_mode/Cloud/03Promote_this_replica.py",
+]
+
+
 class TestLoader:
-    def test_the_directory_holds_four_executable_entries(self):
+    def test_the_menu_holds_the_spec_entries_and_the_mode_screens(self):
         manager = plugin.PluginManager(str(INSTANCE_DIR), {})
 
-        names = sorted(
-            Path(path).name
+        found = sorted(
+            str(Path(path).relative_to(INSTANCE_DIR))
             for path, item in manager.path_map.items()
             if isinstance(item, plugin.Plugin)
         )
 
-        assert names == sorted(ENTRIES)
+        assert found == sorted(ENTRIES + MODE_ENTRIES)
         assert (INSTANCE_DIR / "description").read_text().strip()
+
+    @pytest.mark.parametrize(
+        "directory", ["Database_mode", "Database_mode/Cloud"]
+    )
+    def test_every_submenu_describes_itself(self, directory):
+        assert (INSTANCE_DIR / directory / "description").read_text().strip()
+
+    def test_the_modes_are_offered_in_the_order_decision_0013_settled(self):
+        """Standalone, then Cloud, and inside Cloud primary before replica
+
+        The menu is sorted by path, so the numeric prefixes are the order
+        and the displayed names have them stripped.
+        """
+        inside = sorted(
+            path.name
+            for path in (INSTANCE_DIR / "Database_mode").iterdir()
+            if path.name != "__pycache__"
+        )
+
+        assert inside == ["01Standalone.py", "Cloud", "description"]
+        assert [
+            plugin.Plugin(
+                str(INSTANCE_DIR / "Database_mode" / "Cloud" / name)
+            ).name
+            for name in sorted(
+                one.name
+                for one in (INSTANCE_DIR / "Database_mode" / "Cloud").iterdir()
+                if one.suffix == ".py"
+            )
+        ] == ["Primary.py", "Replica.py", "Promote this replica.py"]
 
     @pytest.mark.parametrize("name", ENTRIES)
     def test_every_entry_has_a_docstring_for_the_menu(self, entry, name):
