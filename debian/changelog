@@ -1,3 +1,14 @@
+confconsole (2.2.3+keel3) trixie; urgency=low
+
+  * Usage screen: centre the mark above it. It was prepended as it was read,
+    so it sat against the left edge of the dialog; the whole block is now
+    shifted by one indent, measured from its widest line, on the same width
+    the mark is admitted on.
+  * keelbanner: take the mark's size from the installed files instead of
+    stating it, so the overlay can redraw the art without a change here.
+
+ -- Keel Linux maintainers <admin@keellinux.org>  Sun, 27 Sep 2026 18:00:06 +0000
+
 confconsole (2.2.3+keel2) trixie; urgency=low
 
   * Add the Instance menu: view the instance description, apply it, show the

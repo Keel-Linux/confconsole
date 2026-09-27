@@ -7,11 +7,13 @@ its collaborators stubbed (interfaces, addresses, `tklbam-status`, the
 template path, the terminal size and the mark files) and a fake console
 that records the message box. The mark decision itself is measured in
 tests/test_keelbanner.py; what is checked here is that the mark goes
-above the usage text, that the box grows by what it takes and that
-nothing the screen already said moved.
+above the usage text and arrives centred in the dialog, that the box
+grows by what it takes and that nothing the screen already said moved.
 """
 
 import pytest
+
+import keelbanner
 
 V6 = "2001:db8:1::10"
 V4 = "192.0.2.10"
@@ -32,11 +34,41 @@ LEGACY_TEMPLATE = """Web:       https://$ipaddr
 Webmin:    https://$ipaddr:12321
 SSH/SFTP:  root@$ipaddr (port 22)"""
 
-# Stand-ins for the two files the core overlay installs, at their sizes:
-# 38 by 19 and 23 by 11. What they draw is the design system's business
-# and is checked where the files live.
-FULL_MARK = "\n".join(["#" * 38] * 19) + "\n"
-SMALL_MARK = "\n".join(["#" * 23] * 11) + "\n"
+# Stand-ins for the two files the core overlay installs. Their size is
+# arbitrary test data, not the size of the shipped art: the screen must
+# measure whatever is installed, so nothing below is derived from the art
+# and redrawing it stales no test. What the marks draw is the design
+# system's business and is checked where the files live. The full one is
+# an odd number of columns narrower than the box, so the indent the
+# screen gives it pins the rounding too.
+FULL_MARK_ROWS, FULL_MARK_COLS = 9, 22
+SMALL_MARK_ROWS, SMALL_MARK_COLS = 4, 11
+FULL_MARK = "\n".join(["#" * FULL_MARK_COLS] * FULL_MARK_ROWS) + "\n"
+SMALL_MARK = "\n".join(["#" * SMALL_MARK_COLS] * SMALL_MARK_ROWS) + "\n"
+
+# The box the usage screen draws itself in, as TurnkeyConsole sizes it.
+BOX_ROWS = 25
+BOX_COLS = 65
+
+# A terminal with room for each mark above that box, and one too narrow
+# for either of them.
+TALL_TERMINAL = (BOX_ROWS + keelbanner.added_rows(FULL_MARK) + 5, 100)
+SHORT_TERMINAL = (BOX_ROWS + keelbanner.added_rows(SMALL_MARK), 100)
+NARROW_TERMINAL = (TALL_TERMINAL[0], SMALL_MARK_COLS + keelbanner.FRAME - 1)
+
+
+def indent_of(mark_cols: int) -> str:
+    """The indent the screen gives a mark of `mark_cols` columns on a
+    terminal at least as wide as the box: the block is centred on what
+    the box leaves inside its frame."""
+    width = keelbanner.inner_width(BOX_COLS)
+    return " " * ((width - mark_cols) // 2)
+
+
+def centred_rows(mark_cols: int, mark_rows: int) -> list[str]:
+    """The lines a mark of `mark_cols` by `mark_rows` draws once the
+    screen has centred it."""
+    return [indent_of(mark_cols) + "#" * mark_cols] * mark_rows
 
 
 class TestRenderUsageLine:
@@ -300,8 +332,6 @@ def usage_env(confconsole, net_stubs, monkeypatch, tmp_path):
 
 def install_marks(state, full=FULL_MARK, small=SMALL_MARK):
     """Put the two marks where the core overlay installs them."""
-    import keelbanner
-
     state["marks"] = {keelbanner.MARK: full, keelbanner.MARK_SMALL: small}
 
 
@@ -309,8 +339,8 @@ def make_usage_console(tc, advanced=True):
     console = tc()
     console.advanced_enabled = advanced
     console.appname = "TurnKey Linux CORE"
-    console.height = 25
-    console.width = 65
+    console.height = BOX_ROWS
+    console.width = BOX_COLS
     console.running = True
     return console
 
@@ -448,15 +478,18 @@ class TestUsageScreen:
 
 class TestUsageMark:
     """The mark goes above the usage text when the terminal has room for
-    it over and above the rows the screen already uses, and the box grows
-    by exactly what it takes, so no line of the screen is lost."""
+    it over and above the rows the screen already uses, centred on the
+    columns the box leaves inside its frame, and the box grows by exactly
+    what the mark takes, so no line of the screen is lost. Whatever size
+    the installed art is, the screen measures it: the sizes below are the
+    fixtures' own."""
 
     def test_a_tall_terminal_gets_the_full_mark_above_the_services(
         self, tc, usage_env
     ):
         # Arrange
         usage_env["net"]["ipv6conf"] = (V6, "64")
-        usage_env["terminal"] = (50, 100)
+        usage_env["terminal"] = TALL_TERMINAL
         install_marks(usage_env)
         console = make_usage_console(tc)
 
@@ -466,17 +499,62 @@ class TestUsageMark:
         # Assert
         text = console.console.calls[-1][2]
         lines = text.splitlines()
-        assert lines[:19] == ["#" * 38] * 19
-        assert lines[19] == ""
-        assert lines[20] == f"Web:       http://[{V6}]"
-        assert console.console.msgbox_kwargs["height"] == 45
+        assert lines[:FULL_MARK_ROWS] == centred_rows(
+            FULL_MARK_COLS, FULL_MARK_ROWS
+        )
+        assert lines[FULL_MARK_ROWS] == ""
+        assert lines[FULL_MARK_ROWS + 1] == f"Web:       http://[{V6}]"
+        assert console.console.msgbox_kwargs["height"] == BOX_ROWS + (
+            keelbanner.added_rows(FULL_MARK)
+        )
+
+    def test_the_mark_is_centred_and_the_usage_text_stays_left_aligned(
+        self, tc, usage_env
+    ):
+        # Arrange: the same screen twice, first without a mark installed
+        usage_env["net"]["ipconf"] = (V4, "255.255.255.0", "192.0.2.1", [])
+        usage_env["net"]["ipv6conf"] = (V6, "64")
+        usage_env["terminal"] = TALL_TERMINAL
+        plain = make_usage_console(tc)
+        plain.usage()
+        without_mark = plain.console.calls[-1][2]
+        install_marks(usage_env)
+        console = make_usage_console(tc)
+
+        # Act
+        console.usage()
+
+        # Assert: the mark block, indented, a blank line, then the very
+        # text the screen shows without it, not a column further in
+        text = console.console.calls[-1][2]
+        block = "\n".join(centred_rows(FULL_MARK_COLS, FULL_MARK_ROWS))
+        assert text == f"{block}\n\n{without_mark}"
+        assert without_mark.splitlines()[0] == f"Web:       http://[{V6}]"
+
+    def test_a_mark_as_wide_as_the_box_is_not_indented_or_truncated(
+        self, tc, usage_env
+    ):
+        # Arrange
+        width = keelbanner.inner_width(BOX_COLS)
+        wide = "\n".join(["#" * width] * FULL_MARK_ROWS) + "\n"
+        usage_env["net"]["ipv6conf"] = (V6, "64")
+        usage_env["terminal"] = TALL_TERMINAL
+        install_marks(usage_env, full=wide)
+        console = make_usage_console(tc)
+
+        # Act
+        console.usage()
+
+        # Assert
+        lines = console.console.calls[-1][2].splitlines()
+        assert lines[:FULL_MARK_ROWS] == ["#" * width] * FULL_MARK_ROWS
 
     def test_a_shorter_terminal_falls_back_to_the_small_mark(
         self, tc, usage_env
     ):
         # Arrange
         usage_env["net"]["ipv6conf"] = (V6, "64")
-        usage_env["terminal"] = (40, 100)
+        usage_env["terminal"] = SHORT_TERMINAL
         install_marks(usage_env)
         console = make_usage_console(tc)
 
@@ -485,9 +563,13 @@ class TestUsageMark:
 
         # Assert
         lines = console.console.calls[-1][2].splitlines()
-        assert lines[:11] == ["#" * 23] * 11
-        assert lines[12] == f"Web:       http://[{V6}]"
-        assert console.console.msgbox_kwargs["height"] == 37
+        assert lines[:SMALL_MARK_ROWS] == centred_rows(
+            SMALL_MARK_COLS, SMALL_MARK_ROWS
+        )
+        assert lines[SMALL_MARK_ROWS + 1] == f"Web:       http://[{V6}]"
+        assert console.console.msgbox_kwargs["height"] == BOX_ROWS + (
+            keelbanner.added_rows(SMALL_MARK)
+        )
 
     def test_80_by_24_keeps_the_usage_screen_whole(self, tc, usage_env):
         # Arrange
@@ -503,14 +585,14 @@ class TestUsageMark:
         text = console.console.calls[-1][2]
         assert "#" not in text
         assert text.splitlines()[0] == f"Web:       http://[{V6}]"
-        assert console.console.msgbox_kwargs["height"] == 25
+        assert console.console.msgbox_kwargs["height"] == BOX_ROWS
 
     def test_an_appliance_without_the_mark_files_is_unchanged(
         self, tc, usage_env
     ):
         # Arrange
         usage_env["net"]["ipv6conf"] = (V6, "64")
-        usage_env["terminal"] = (50, 100)
+        usage_env["terminal"] = TALL_TERMINAL
         console = make_usage_console(tc)
 
         # Act
@@ -519,7 +601,7 @@ class TestUsageMark:
         # Assert
         text = console.console.calls[-1][2]
         assert text.splitlines()[0] == f"Web:       http://[{V6}]"
-        assert console.console.msgbox_kwargs["height"] == 25
+        assert console.console.msgbox_kwargs["height"] == BOX_ROWS
 
     def test_the_mark_does_not_displace_the_ipv4_block_or_the_footer(
         self, tc, usage_env
@@ -527,23 +609,25 @@ class TestUsageMark:
         # Arrange
         usage_env["net"]["ipconf"] = (V4, "255.255.255.0", "192.0.2.1", [])
         usage_env["net"]["ipv6conf"] = (V6, "64")
-        usage_env["terminal"] = (50, 100)
+        usage_env["terminal"] = TALL_TERMINAL
         install_marks(usage_env)
         console = make_usage_console(tc)
 
         # Act
         console.usage()
 
-        # Assert
+        # Assert: the IPv4 block keeps its place under the IPv6 one, the
+        # mark and its blank line above them both
         lines = console.console.calls[-1][2].splitlines()
-        assert lines[26] == f"Web:       http://{V4}"
+        ipv4_line = keelbanner.added_rows(FULL_MARK) + 6
+        assert lines[ipv4_line] == f"Web:       http://{V4}"
         assert "TKLBAM: not initialized" in lines
         assert lines[-1] == "             https://hub.turnkeylinux.org"
 
     def test_a_narrow_terminal_drops_the_mark(self, tc, usage_env):
         # Arrange
         usage_env["net"]["ipv6conf"] = (V6, "64")
-        usage_env["terminal"] = (50, 26)
+        usage_env["terminal"] = NARROW_TERMINAL
         install_marks(usage_env)
         console = make_usage_console(tc)
 

@@ -152,9 +152,9 @@ Total 307 tests. Threshold in the caller: 100, unchanged; the measured
 package is now `ifutil,keelbanner,keelcli,plugins.d/Instance`.
 
 The console is a brand surface, so the usage screen carries the mark the
-core overlay installs (`/etc/keel/banner.txt`, 38 by 19, and
-`/etc/keel/banner-small.txt`, 23 by 11), the same two files the login
-banner reads. The decision is a module of its own, `keelbanner.py`, next
+core overlay installs (`/etc/keel/banner.txt` and
+`/etc/keel/banner-small.txt`), the same two files the login banner
+reads. The decision is a module of its own, `keelbanner.py`, next
 to `keelcli.py` and for the same reason: `plugin.py` loads entries with
 `spec_from_file_location` and never adds the plugin directory to the
 import path, and the repository root is already on it. `usage()` gained
@@ -165,13 +165,50 @@ box height it always used.
 What the module enforces is the rule of the terminal surface: the mark
 never costs the screen a line of what it already says. It is dropped to
 the small mark, and then to nothing, before the usage text loses a row.
-A terminal under 24 rows gets no mark at all; with the usage box at 25
-rows the small mark needs 37 and the full mark 45, so an 80 by 24
-console and a narrow serial line both keep the screen exactly as it was.
+A terminal under 24 rows gets no mark at all; above that a mark needs the
+25 rows of the usage box plus its own rows and the blank line between
+them, whatever the installed art measures, so an 80 by 24 console and a
+narrow serial line both keep the screen exactly as it was.
 `tests/conftest.py` gained `FakeConsole.msgbox_kwargs` so a test can read
 the height the box was asked for, and the `usage_env` fixture pins the
 terminal size and the installed marks, so the existing usage tests do
 not depend on the host carrying `/etc/keel`.
+
+## Measured on 2026-09-27 with the centred mark
+
+| File | Tests | Stmts | Branches | Cover |
+|------|-------|-------|----------|-------|
+| ifutil.py | 155 as above (unchanged file) | 551 | 230 | 100 percent, 0 missed, 0 partial |
+| keelbanner.py | 41 in tests/test_keelbanner.py, up from 22: the 11 in `TestCenter` (an odd and an even leftover, a mark wider than the width, a mark exactly the width, a blank line, a line of spaces, trailing whitespace in the art, no trailing whitespace on the block, one indent for every line, the row count, plain ASCII), `inner_width` (the frame, and the width `fits` and `center` share), `mark_size` on blocks of several shapes including ragged and empty, and the fallback ladder on a shrinking screen | 52 | 16 | 100 percent, 0 missed, 0 partial |
+| keelcli.py | 50 as above (unchanged file) | 104 | 16 | 100 percent, 0 missed, 0 partial |
+| plugins.d/Instance | 17 as above (unchanged file) | 52 | 4 | 100 percent, 0 missed, 0 partial |
+| confconsole.py | 68 in tests/test_confconsole_ifconf6.py and tests/test_confconsole_usage.py, the 8 in `TestUsageMark` | 658 | 238 | 39 percent measured locally, unchanged; the touched lines (`usage`) have 0 missed and 0 partial |
+
+Total 328 tests, up from 307. Threshold in the caller: 100, unchanged;
+the measured package is unchanged. Command:
+
+    PYTHONPATH=. python3 -m coverage run --branch \
+      --source=ifutil,keelbanner,keelcli,plugins.d/Instance -m pytest -q tests
+    python3 -m coverage report --show-missing
+
+Two defects were fixed. The mark was prepended as it was read, so it sat
+against the left edge of the dialog instead of under its middle;
+`keelbanner.center` now shifts the whole block by one indent, measured
+from the widest line, which keeps the mark's internal alignment (padding
+each line on its own would not) and never truncates a mark as wide as the
+box or wider. The width is `keelbanner.inner_width(cols)`, the one
+definition `fits` measures against, so the width a mark is admitted on
+and the width it is centred on cannot disagree. Only the mark is centred;
+the usage text keeps its own left margin.
+
+The second defect was documentation and tests stating how big the art is,
+which is not this module's business: the art lives in the core overlay
+and is redrawn there. The module docstring no longer names a size, the
+fixtures in both test files are synthetic blocks of an arbitrary size
+rather than copies of the shipped marks, and every expectation, including
+the rows each terminal admits and the indent the screen gives, is derived
+from the size the fixture itself measures. Redrawing the art changes no
+test.
 
 ## Plan to reach 90 percent per file
 
