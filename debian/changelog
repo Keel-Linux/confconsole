@@ -1,3 +1,28 @@
+confconsole (2.2.3+keel3) trixie; urgency=low
+
+  * Instance menu: add Database mode, the console half of handbook decision
+    0013. Standalone, or Cloud splitting into Primary and Replica, each
+    leading to a screen that configures THIS node and nothing else: the
+    addresses it answers on, the origins a primary allows to replicate from
+    it, the endpoint a replica replicates from, and the file holding the
+    replication credential. A prefix is offered as the form to prefer and a
+    name is called fragile, which is what docs/spec.md of keel says.
+  * Every cloud screen states, in a line the operator cannot miss, that this
+    replication has no automatic failover: if the primary stops, nothing
+    takes over by itself.
+  * Promote this replica is its own entry, and asks first, because promoting
+    while the old primary still runs leaves two writable servers holding one
+    dataset. It says so in the question.
+  * Becoming a replica replaces the local database. The screen never decides
+    that: it shows keel's own refusal and asks whether to go on, and only a
+    Yes adds --destroy-local-database to the run.
+  * What the operator typed is staged beside the description and handed to
+    keel spec validate before it replaces it, so a value that would not load
+    cannot replace one that does.
+  * Depend on python3-yaml: the menu writes the description it collected.
+
+ -- Marcos Méndez <mendez.foto@gmail.com>  Sun, 27 Sep 2026 15:50:00 +0000
+
 confconsole (2.2.3+keel2) trixie; urgency=low
 
   * Add the Instance menu: view the instance description, apply it, show the

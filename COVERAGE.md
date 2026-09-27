@@ -151,6 +151,32 @@ on it. `tests/conftest.py` gained `FakeConsole.inputbox`.
 Total 307 tests. Threshold in the caller: 100, unchanged; the measured
 package is now `ifutil,keelbanner,keelcli,plugins.d/Instance`.
 
+## Measured on 2026-09-27 with the database mode screens
+
+| File | Tests | Stmts | Branches | Cover |
+|------|-------|-------|----------|-------|
+| keelcli.py | 50 as before plus 33 in tests/test_database_mode.py: the description each role builds, reading and staging and committing and discarding it, the refusal read out of what apply printed, the question that confirms it, and the three screen texts | 196 | 26 | 100 percent, 0 missed, 0 partial |
+| dbscreen.py (new: the dialog flow the three mode screens share) | 30 in tests/test_database_mode.py: the form and its defaults, the engine from the description and from the machine, stage then validate then commit then apply, every way each step can fail, and the one question whose Yes loses data | 87 | 32 | 100 percent, 0 missed, 0 partial |
+| plugins.d/Instance | 17 as before plus 3 on the menu itself and 16 on the four new screens | 90 | 14 | 100 percent, 0 missed, 0 partial |
+| ifutil.py, keelbanner.py | unchanged | 594 | 244 | 100 percent, 0 missed, 0 partial |
+
+Total **379 tests**, 100 percent over the measured package, which is now
+`ifutil,keelbanner,keelcli,dbscreen,plugins.d/Instance`. Threshold in the
+caller: 100, unchanged.
+
+The screens hold no decision of their own. Each one says what its role is
+and which fields it needs; `dbscreen` collects them, writes them into the
+instance description and hands it to `keel`, and every refusal on the
+screen is keel's own words rather than the console's. That is what keeps
+the console and the headless path the same code path: what the operator
+gets from Cloud / Replica is what `keel spec apply --system-only` does,
+including its refusal to replace a database that holds data.
+
+`dbscreen.py` lives at the package root next to `keelcli.py`, for the
+reason given below: `plugin.py` loads entries with
+`spec_from_file_location` and never adds the plugin directory to the
+import path, and the repository root is already on it.
+
 The console is a brand surface, so the usage screen carries the mark the
 core overlay installs (`/etc/keel/banner.txt`, 38 by 19, and
 `/etc/keel/banner-small.txt`, 23 by 11), the same two files the login
