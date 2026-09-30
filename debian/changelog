@@ -1,3 +1,60 @@
+confconsole (2.2.3+keel5) trixie; urgency=low
+
+  * Database mode, Cloud / Primary: once the primary is configured, the
+    screen shows what each replica's screen asks for: the addresses to
+    replicate from, IPv6 first, the port, the replication account keel
+    names (repl) and the file that holds its password. A primary that
+    answers on loopback only is offered this node's own addresses in the
+    form, every stable one and public before unique local (the usage
+    screen's single pick per interface was the fd00:: one on a test VM),
+    and one nobody can reach says so instead of handing out ::1.
+  * Cloud / Primary: when the password file holds nothing, offer to
+    generate a password, write it root only (0600, directory 0700) and
+    show it once, after the apply, to paste into each replica. A file that
+    already holds one is kept and never shown or regenerated, because the
+    replicas configured with it would stop authenticating.
+  * Cloud / Replica: ask for the replication password itself, hidden, and
+    write it to the file the description references, instead of asking the
+    operator for a file to create by hand. A blank keeps the file's value.
+  * Cloud / Replica: warn before anything is changed that becoming a
+    replica replaces the data on this node with a copy of the primary; No
+    leaves the description, the secret and the server as they were. keel's
+    own refusal is still asked separately before --destroy-local-database.
+  * The password is written after keel spec validate accepted the new
+    description and before it is committed and applied, so a refused
+    description leaves no credential behind and the apply never runs
+    without it.
+  * The mode screens run apply with --skip-network and --defer-certificate:
+    saving a database mode never rewrites the interfaces, never opens the
+    network revert window, and never asks for a certificate. The screens
+    say so.
+  * Primary: 'Allow replication from' is prefilled with this node's /64,
+    public before unique local. Left empty, it authorizes nobody (keel
+    drops every replication account), and the handout says that first.
+    A failed apply still shows a generated password, under a warning that
+    the node is not ready.
+  * The handout is shown with a textbox read from a file in a private 0700
+    directory removed when the box closes, never as a msgbox, whose text
+    dialog receives as an argument that anyone on the machine can read.
+    The password box runs with that directory as TMPDIR as well.
+  * The address to paste is shown bare; a pasted [address] is accepted.
+  * Answering No to dropping the local databases puts the description and
+    the password file back and applies the old description again, since
+    keel had already rewritten the server's configuration. Only an old
+    description that declares a database server is applied again; for
+    one that does not, the screen says the replica configuration stays
+    until a database mode is applied.
+  * A description that cannot be committed takes the password written for
+    it back with it, so no password is left in a file that no screen will
+    ever show again.
+  * The handout falls back to a box sized by dialog on a terminal too
+    small for it, as every other box of the console does.
+  * The secret is written all at once (a new 0600 file replacing the old),
+    the staged description gets a unique name, and a fresh appliance with
+    no description gets one started instead of an errno.
+
+ -- Marcos Méndez <mendez.foto@gmail.com>  Wed, 30 Sep 2026 12:00:00 +0000
+
 confconsole (2.2.3+keel4) trixie; urgency=low
 
   * Usage screen: centre the mark above it. It was prepended as it was read,
