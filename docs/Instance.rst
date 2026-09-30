@@ -158,7 +158,10 @@ Primary
   offered: MariaDB matches the text of a replica's address, which can
   leave out a zero group of the prefix (``fd3d:80b2:d0d7::2`` is not
   ``fd3d:80b2:d0d7:0:...``), so keel refuses such a prefix, the overlay
-  /64 among them (``docs/spec.md`` of keel). An empty origin list
+  /64 among them (``docs/spec.md`` of keel). The peers offered are every
+  overlay peer, replica or not. An origin the description already holds
+  that keel refuses is named above the form and replaced by the peers'
+  addresses. An empty origin list
   authorizes nobody: keel drops every replication account, and the
   handout says so first. When the password file holds nothing the screen
   offers to generate a password; No lets the operator type one. After the

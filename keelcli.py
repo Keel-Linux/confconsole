@@ -582,7 +582,14 @@ def promote_text(result: Result) -> str:
 # above. It is a constant there and not a field on purpose: both ends of a
 # pair must name the same account.
 REPLICATION_ACCOUNT = "repl"
-DEFAULT_PORTS = {"mariadb": 3306}
+MARIADB = "mariadb"
+DEFAULT_PORTS = {MARIADB: 3306}
+REFUSED_ORIGINS = (
+    "KEEL REFUSES {origins} ON MARIADB. MariaDB matches the text of a"
+    " replica's address, which can leave out a zero group of the prefix"
+    " (fd3d:80b2:d0d7::2 is not fd3d:80b2:d0d7:0:...), so no grant holds"
+    " it exactly, and the description would not validate."
+)
 PASSWORD_BYTES = 24
 SECRET_DIR_MODE = 0o700
 REPLACING = ".keelcli-tmp"
@@ -734,20 +741,73 @@ def primary_listen(listen: str, machine: list[str]) -> str:
     return ", ".join(own + current)
 
 
-def suggested_origin(allowed_from: str, peers: list[str]) -> str:
+def suggested_origin(
+    allowed_from: str, peers: list[str], refused: list[str] = (),
+) -> str:
     """What the primary's form offers for 'Allow replication from'
 
-    Left as it is when the description already names origins. Otherwise
-    the overlay peers' addresses, each replica by its own: MariaDB
+    Left as it is when the description already names origins keel
+    grants. Otherwise the overlay peers' addresses, each replica by its
+    own, after what the description names that keel grants: MariaDB
     matches a grant against the text of the replica's address, and in
     this node's /64 that text can drop a zero group of the prefix
     (fd3d:80b2:d0d7::2 is not fd3d:80b2:d0d7:0:...), so keel refuses such
-    a prefix. With no peer the field stays empty, which authorizes nobody
-    (keel drops every replication account) and the handout says so.
+    a prefix (`refused`). With nothing left the field stays empty, which
+    authorizes nobody (keel drops every replication account) and the
+    handout says so.
     """
-    if allowed_from.strip():
+    kept = [one for one in addresses(allowed_from) if one not in refused]
+    if kept and not refused:
         return allowed_from
-    return ", ".join(peers)
+    return ", ".join(kept + [one for one in peers if one not in kept])
+
+
+def refused_origins(allowed_from: str, engine: str) -> list[str]:
+    """The origins of the field keel's validation refuses on this engine
+
+    keel.spec.origins.mariadb_problem, reproduced like the account name:
+    a prefix that stops inside a group, an IPv6 prefix with a zero group
+    the text of an address compresses away (its last group is zero, or
+    two in a row are), and a host pattern with ::. PostgreSQL takes a
+    prefix as it is.
+    """
+    if engine != MARIADB:
+        return []
+    return [one for one in addresses(allowed_from) if _unholdable(one)]
+
+
+def _unholdable(origin: str) -> bool:
+    if "::" in origin and any(one in origin for one in "%_"):
+        return True
+    if origin.endswith(":%"):
+        origin = origin[:-1] + f":/{16 * (origin.count(':'))}"
+    if "/" not in origin:
+        return False
+    try:
+        network = ipaddress.ip_network(origin, strict=False)
+    except ValueError:
+        return False
+    length, bits = network.prefixlen, (16 if network.version == 6 else 8)
+    if length == network.max_prefixlen:
+        return False
+    if length == 0 or length % bits:
+        return True
+    if network.version == 4:
+        return False
+    groups = network.network_address.exploded.split(":")[: length // 16]
+    zero = [int(one, 16) == 0 for one in groups]
+    return zero[-1] or any(a and b for a, b in zip(zero, zero[1:]))
+
+
+def refused_text(refused: list[str], peers: list[str]) -> str:
+    """What the primary's form says above a field it had to change"""
+    instead = (
+        "The field offers the overlay peers' addresses in its place; check"
+        " that each is a replica." if peers else
+        "There is no overlay peer to offer in its place; give each"
+        " replica's address."
+    )
+    return REFUSED_ORIGINS.format(origins=", ".join(refused)) + " " + instead
 
 
 def bracketed(address: str) -> str:

@@ -8,7 +8,13 @@ confconsole (2.2.3+keel7) trixie; urgency=low
     refuses such a prefix. An empty field is prefilled with the overlay
     peers' addresses instead, each replica by its own; with no peer it
     stays empty. The screen and the empty-origin warning ask for each
-    replica's address.
+    replica's address, and the screen says the field offers every
+    overlay peer, replica or not.
+  * An origin the description already holds that keel refuses on
+    MariaDB (a prefix inside a group, one whose zero group the text of
+    an address compresses away, a host pattern with ::) is named above
+    the form and replaced by the overlay peers' addresses, instead of
+    being prefilled for keel to refuse.
 
  -- Marcos Méndez <mendez.foto@gmail.com>  Wed, 30 Sep 2026 07:40:00 +0000
 

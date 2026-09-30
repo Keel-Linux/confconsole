@@ -621,6 +621,7 @@ class TestTheScreensThemselves:
         loaded, _ = screen("Cloud/01Primary.py")
 
         assert "each replica's address" in loaded.module.TEXT
+        assert "every overlay peer" in loaded.module.TEXT
         assert "prefer" not in loaded.module.TEXT
         assert "fragile" in loaded.module.TEXT
 

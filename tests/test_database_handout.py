@@ -160,6 +160,47 @@ class TestWhatThePrimaryHandsOut:
         # fd3d:80b2:d0d7:0:..., so the pattern for that /64 refused it.
         assert keelcli.suggested_origin("", []) == ""
 
+    @pytest.mark.parametrize(
+        "origin",
+        ["fd3d:80b2:d0d7::/64", "2001:db8::/48", "2001:0:0:5::/64",
+         "2001:db8::/56", "192.0.2.0/25", "2001::5:%",
+         "fd3d:80b2:d0d7:0:%"],
+    )
+    def test_an_origin_keel_refuses_on_mariadb_is_found(self, origin):
+        # keel.spec.origins.mariadb_problem, reproduced like the account.
+        assert keelcli.refused_origins(origin, "mariadb") == [origin]
+
+    @pytest.mark.parametrize(
+        "origin",
+        ["2804:710:d0:5::/64", "2001:db8:0:5::/64", "192.0.2.0/24",
+         PEER6, "2001:db8:1:%", "replica.example.org", "::/0x",
+         "2001:db8::20/128"],
+    )
+    def test_an_origin_keel_grants_is_not(self, origin):
+        assert keelcli.refused_origins(origin, "mariadb") == []
+
+    def test_another_engine_takes_any_prefix(self):
+        assert keelcli.refused_origins(
+            "fd3d:80b2:d0d7::/64", "postgresql"
+        ) == []
+
+    def test_a_refused_origin_is_replaced_by_the_peers(self):
+        found = keelcli.suggested_origin(
+            f"fd3d:80b2:d0d7::/64, {PEER6}", [PEER6, OTHER6],
+            ["fd3d:80b2:d0d7::/64"],
+        )
+
+        assert found == f"{PEER6}, {OTHER6}"
+
+    def test_the_warning_names_the_origin_and_the_peers(self):
+        text = keelcli.refused_text(["fd3d:80b2:d0d7::/64"], [PEER6])
+
+        assert "fd3d:80b2:d0d7::/64" in text
+        assert "overlay peers" in text
+        assert "no overlay peer" in keelcli.refused_text(
+            ["fd3d:80b2:d0d7::/64"], []
+        )
+
     def test_a_pasted_bracketed_address_is_stored_bare(self):
         found = keelcli.replica_server(
             "mariadb", "::1", f" [{NODE6}] ", "", "/s/r"
@@ -441,6 +482,34 @@ class TestThePrimaryScreen:
         loaded.module.run()
 
         assert console.calls[0][2][1][3] == f"{PEER6}, {OTHER6}"
+
+    def test_a_declared_prefix_keel_refuses_is_flagged_and_replaced(
+        self, screen, spec, keel
+    ):
+        spec.write_text(yaml.safe_dump({
+            **BASE,
+            "database": {"server": {
+                "engine": "mariadb", "role": "primary",
+                "replication": {"allowed_from": ["fd3d:80b2:d0d7::/64"]},
+            }},
+            "network": {"overlay": {"wireguard": {
+                "address": "fd3d:80b2:d0d7::1/64", "peers": [
+                    {"public_key": "k" * 43 + "=",
+                     "allowed_ips": [f"{PEER6}/128"]},
+                ],
+            }}},
+        }))
+        loaded, console = screen(
+            "Cloud/01Primary.py", forms=[("cancel", [])]
+        )
+
+        loaded.module.run()
+
+        _, text, fields, _ = console.calls[0]
+        assert fields[1][3] == PEER6
+        assert text.startswith(keelcli.refused_text(
+            ["fd3d:80b2:d0d7::/64"], [PEER6]
+        ))
 
     def test_the_form_offers_no_prefix_of_this_node(
         self, screen, spec, keel, machine
