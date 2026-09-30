@@ -13,55 +13,17 @@ import yaml
 
 import dbscreen
 import keelcli
-import plugin
-from conftest import FakeConsole
+from conftest import BASE, FakeConsole, make_result
 
-MODE_DIR = (
-    Path(__file__).resolve().parent.parent
-    / "plugins.d" / "Instance" / "Database_mode"
-)
 PRIMARY_HOST = "2804:710:d0:5:bc:24ff:fe25:b2"
 PREFIX = "2804:710:d0:5::/64"
 SECRET = "/etc/keel/secrets/replication_password"
-# What a MariaDB appliance boots with once inspect has described it: the
-# engine is known, so a screen never has to ask the machine what it runs.
-BASE = {
-    "version": 1,
-    "instance": {"hostname": "mariadb"},
-    "database": {"server": {"engine": "mariadb", "role": "standalone"}},
-}
 
 
-def make_result(argv, code=0, stdout="", stderr=""):
-    return keelcli.Result(("keel", *argv), code, stdout, stderr)
-
-
-@pytest.fixture
-def keel(monkeypatch):
-    """Replace keelcli.call; `calls` records argv, `answers` steers it."""
-    state = {"calls": [], "answers": [], "default": (0, "", "")}
-
-    def fake_call(argv):
-        state["calls"].append(list(argv))
-        if state["answers"]:
-            outcome = state["answers"].pop(0)
-        else:
-            outcome = state["default"]
-        if isinstance(outcome, Exception):
-            raise outcome
-        return make_result(argv, *outcome)
-
-    monkeypatch.setattr(keelcli, "call", fake_call)
-    return state
-
-
-@pytest.fixture
-def spec(tmp_path, monkeypatch):
-    """A description on disk that KEEL_SPEC points at."""
-    path = tmp_path / "instance.yaml"
-    path.write_text(yaml.safe_dump(BASE))
-    monkeypatch.setenv("KEEL_SPEC", str(path))
-    return path
+@pytest.fixture(autouse=True)
+def no_machine_addresses(monkeypatch):
+    """The machine is never asked for its addresses by these tests"""
+    monkeypatch.setattr(dbscreen, "local_addresses", lambda: [])
 
 
 class TestWhatTheScreensBuild:
@@ -314,7 +276,7 @@ class TestTheFlow:
 
         assert self.commands(keel) == ["spec validate"]
         assert yaml.safe_load(spec.read_text()) == BASE
-        assert not Path(keelcli.staged_path(str(spec))).exists()
+        assert [one.name for one in spec.parent.iterdir()] == [spec.name]
         assert "was NOT changed" in console.calls[-1][2]
 
     def test_a_missing_keel_is_said_once_and_nothing_is_written(
@@ -334,7 +296,9 @@ class TestTheFlow:
     def test_a_description_that_cannot_be_read_stops_before_anything(
         self, tmp_path, monkeypatch, keel
     ):
-        monkeypatch.setenv("KEEL_SPEC", str(tmp_path / "absent.yaml"))
+        broken = tmp_path / "broken.yaml"
+        broken.write_text("database: [\n")
+        monkeypatch.setenv("KEEL_SPEC", str(broken))
         console = FakeConsole()
 
         dbscreen.apply_mode(
@@ -343,7 +307,25 @@ class TestTheFlow:
         )
 
         assert keel["calls"] == []
-        assert "absent.yaml" in console.calls[-1][2]
+        assert "broken.yaml" in console.calls[-1][2]
+
+    def test_a_fresh_appliance_with_no_description_gets_one(
+        self, tmp_path, monkeypatch, keel
+    ):
+        absent = tmp_path / "instance.yaml"
+        monkeypatch.setenv("KEEL_SPEC", str(absent))
+
+        dbscreen.apply_mode(
+            FakeConsole(), "x", keelcli.standalone_server("mariadb", "::1")
+        )
+
+        assert yaml.safe_load(absent.read_text()) == {
+            "version": 1,
+            "database": {"server": {
+                "engine": "mariadb", "role": "standalone", "listen": ["::1"],
+            }},
+        }
+        assert absent.stat().st_mode & 0o777 == 0o600
 
     def test_a_description_that_cannot_be_staged_stops_there(
         self, tmp_path, monkeypatch, keel
@@ -376,7 +358,9 @@ class TestTheFlow:
         )
 
         assert self.commands(keel) == ["spec validate"]
-        assert console.calls[-1][2] == "read only"
+        assert "read only" in console.calls[-1][2]
+        assert "was NOT changed" in console.calls[-1][2]
+        assert [one.name for one in spec.parent.iterdir()] == [spec.name]
 
 
 class TestTheOneQuestionThatLosesData:
@@ -412,8 +396,15 @@ class TestTheOneQuestionThatLosesData:
 
         self.replica(console, keel)
 
-        assert len(keel["calls"]) == 2
-        assert "--destroy-local-database" not in keel["calls"][-1]
+        # validate, the refused apply, and the old description applied
+        # again: keel wrote the server's configuration before it refused.
+        assert len(keel["calls"]) == 3
+        assert all(
+            "--destroy-local-database" not in call for call in keel["calls"]
+        )
+        assert yaml.safe_load(spec.read_text()) == BASE
+        assert "NOT a replica" in console.calls[-1][2]
+        assert "applied again" in console.calls[-1][2]
 
     def test_a_keel_that_vanished_before_applying_says_so(self, spec, keel):
         keel["answers"] = [
@@ -562,13 +553,15 @@ class TestTheForm:
     def test_an_unreadable_description_asks_nothing(
         self, tmp_path, monkeypatch, keel
     ):
-        monkeypatch.setenv("KEEL_SPEC", str(tmp_path / "absent.yaml"))
+        broken = tmp_path / "broken.yaml"
+        broken.write_text("- not\n- a mapping\n")
+        monkeypatch.setenv("KEEL_SPEC", str(broken))
         console = FakeConsole()
 
         assert dbscreen.ask(
             console, "x", "text", [("Answer on", "listen", 20, 40)]
         ) is None
-        assert "absent.yaml" in console.calls[-1][2]
+        assert "broken.yaml" in console.calls[-1][2]
 
     def test_a_machine_with_no_engine_asks_nothing(
         self, keel, tmp_path, monkeypatch
@@ -589,20 +582,6 @@ class TestTheForm:
         found = dbscreen.format_fields([("Answer on", "::1", 20, 40)])
 
         assert found == [("Answer on", 1, 1, "::1", 1, 22, 40, 40)]
-
-
-@pytest.fixture
-def screen(monkeypatch):
-    """Load one mode screen with a fake console, the way confconsole does"""
-    monkeypatch.delenv("KEEL_SPEC", raising=False)
-
-    def _load(relative, **console_kwargs):
-        loaded = plugin.Plugin(str(MODE_DIR / relative))
-        console = FakeConsole(**console_kwargs)
-        loaded.updateGlobals({"console": console})
-        return loaded, console
-
-    return _load
 
 
 class TestTheScreensThemselves:
@@ -651,27 +630,16 @@ class TestTheScreensThemselves:
 
         assert "REPLACES the database it holds" in loaded.module.TEXT
 
-    @pytest.mark.parametrize(
-        "name,role",
-        [
-            ("01Standalone.py", "standalone"),
-            ("Cloud/01Primary.py", "primary"),
-            ("Cloud/02Replica.py", "replica"),
-        ],
-    )
-    def test_each_screen_applies_its_own_role(
-        self, screen, spec, keel, name, role
+    def test_the_standalone_screen_applies_its_own_role(
+        self, screen, spec, keel
     ):
-        answers = ["::1", PREFIX, SECRET, "3306"]
-        loaded, console = screen(
-            name, forms=[("ok", answers)],
-        )
+        loaded, _ = screen("01Standalone.py", forms=[("ok", ["::1"])])
 
         loaded.module.run()
 
         assert yaml.safe_load(spec.read_text())["database"]["server"][
             "role"
-        ] == role
+        ] == "standalone"
 
     @pytest.mark.parametrize("name", NAMES[:3])
     def test_a_cancelled_screen_changes_nothing(

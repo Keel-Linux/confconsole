@@ -8,9 +8,12 @@ is the command's, so the menu and the headless run share one code path
 rest are pure functions over its result, tested without a ``keel``.
 """
 
+import ipaddress
 import json
 import os
+import secrets
 import subprocess
+import tempfile
 from dataclasses import dataclass
 
 import yaml
@@ -281,12 +284,41 @@ NO_FAILOVER = (
 THIS_NODE = (
     "This screen configures THIS node only. It does not create replicas,"
     " does not change any other machine, and cannot know what the others"
-    " are doing."
+    " are doing. It changes the database server and leaves the network"
+    " and the TLS certificate alone."
 )
-APPLY = ["spec", "apply", "--system-only", "--non-interactive"]
+# A database mode screen converges the database and nothing else it can
+# avoid: --skip-network, so saving a mode never rewrites the interfaces
+# and never opens the revert window of decision 0018 while the operator
+# is reading a result box, and --defer-certificate, so it never asks a
+# certificate authority for anything. Both are keel's own flags for the
+# system phase (docs/apply.md).
+APPLY = [
+    "spec", "apply", "--system-only", "--non-interactive",
+    "--skip-network", "--defer-certificate",
+]
+LEFT_ALONE = (
+    "The network and the TLS certificate are left alone by this screen"
+    " (--skip-network, --defer-certificate)."
+)
 DESTROY = "--destroy-local-database"
 REFUSED = "refused: "
 STAGED = ".keelcli-new"
+# What a description that does not exist yet starts as: the smallest one
+# keel accepts, to which the screen adds `database.server`.
+NEW_DESCRIPTION = {"version": 1}
+
+
+def load_description(path: str) -> tuple[dict, str]:
+    """The description a database screen edits
+
+    A fresh appliance may have none yet. The screen then starts one rather
+    than stopping at an errno: a description holding only `version` and
+    the database section converges the database and nothing else.
+    """
+    if not os.path.lexists(path):
+        return dict(NEW_DESCRIPTION), ""
+    return load_spec(path)
 
 
 def load_spec(path: str) -> tuple[dict, str]:
@@ -357,7 +389,9 @@ def replica_server(
     """This node replicates from that one"""
     server = standalone_server(engine, listen)
     server["role"] = REPLICA
-    endpoint: dict = {"host": host.strip()}
+    # Brackets are how an IPv6 address is written beside a port, so an
+    # operator may paste them; the description holds the bare literal.
+    endpoint: dict = {"host": host.strip().strip("[]")}
     if port.strip():
         digits = port.strip()
         endpoint["port"] = int(digits) if digits.isdigit() else digits
@@ -373,8 +407,28 @@ def render_spec(document: dict) -> str:
     return yaml.safe_dump(document, sort_keys=False, default_flow_style=False)
 
 
-def staged_path(path: str) -> str:
-    return path + STAGED
+def write_beside(path: str, text: str, suffix: str) -> tuple[str, str]:
+    """Write `text` to a new file of its own beside `path`, root only
+
+    A unique name (mkstemp, created 0600 by it), so two consoles open at
+    once never write into each other's file. (the file, the reason on
+    failure or "")
+    """
+    directory = os.path.dirname(path) or "."
+    try:
+        descriptor, written = tempfile.mkstemp(
+            prefix=os.path.basename(path) + ".", suffix=suffix,
+            dir=directory,
+        )
+    except OSError as error:
+        return "", f"{path}: {error.strerror}"
+    try:
+        with os.fdopen(descriptor, "w") as fob:
+            fob.write(text)
+    except OSError as error:
+        discard_spec(written)
+        return "", f"{written}: {error.strerror}"
+    return written, ""
 
 
 def stage_spec(document: dict, path: str) -> tuple[str, str]:
@@ -385,16 +439,7 @@ def stage_spec(document: dict, path: str) -> tuple[str, str]:
     so a value that would not load cannot replace one that does. The
     screen commits it or throws it away.
     """
-    staged = staged_path(path)
-    try:
-        descriptor = os.open(
-            staged, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600
-        )
-        with os.fdopen(descriptor, "w") as fob:
-            fob.write(render_spec(document))
-    except OSError as error:
-        return staged, f"{staged}: {error.strerror}"
-    return staged, ""
+    return write_beside(path, render_spec(document), STAGED)
 
 
 def commit_spec(staged: str, path: str) -> str:
@@ -445,8 +490,65 @@ def mode_text(server: dict, path: str, result: Result) -> str:
     return (
         f"{path}: database.server.role: {role}\n\n"
         f"$ {result.command}\n{result.output}\n\n"
-        f"{describe_exit('apply', result.code)}\n\n{NO_FAILOVER}"
+        f"{describe_exit('apply', result.code)}\n\n{LEFT_ALONE}\n\n"
+        f"{NO_FAILOVER}"
     )
+
+
+def declares_server(text: str | None) -> bool:
+    """Whether a description's text declares `database.server`
+
+    keel converges only what a description declares, so applying one that
+    declares no server again changes nothing a replica screen wrote.
+    """
+    try:
+        document = yaml.safe_load(text or "") or {}
+    except yaml.YAMLError:
+        return False
+    return isinstance(document, dict) and bool(server_of(document))
+
+
+def rollback_text(
+    path: str, refused: Result, again: Result | None, problems: list[str],
+    existed: bool = True,
+) -> str:
+    """The screen after the operator answered No to dropping data"""
+    lines = [
+        "You answered No: nothing was dropped and this node is NOT a"
+        " replica.", "",
+        f"$ {refused.command}\n{refused.output}", "",
+    ]
+    stays = (
+        " The server configuration keel wrote above before it refused"
+        " (the replica's drop-in, and a restart) stays until a database"
+        " mode is applied from this menu."
+    )
+    if problems:
+        lines += [
+            "These could NOT be put back as they were; fix them by hand:",
+            *problems,
+        ]
+    elif again is None and not existed:
+        lines += [
+            f"There was no {path} before this screen, so it was removed"
+            " again, and so was the password file if this screen wrote it."
+            + stays,
+        ]
+    elif again is None:
+        lines += [
+            f"{path} and the password file were put back as they were. The"
+            " old description declares no database server, so keel has"
+            " nothing of it to apply again." + stays,
+        ]
+    else:
+        lines += [
+            f"{path} and the password file were put back as they were, and"
+            " the old description was applied again to undo what keel"
+            " wrote above before it refused:", "",
+            f"$ {again.command}\n{again.output}", "",
+            describe_exit("apply", again.code),
+        ]
+    return "\n".join(lines)
 
 
 def invalid_text(path: str, result: Result) -> str:
@@ -463,4 +565,263 @@ def promote_text(result: Result) -> str:
     return (
         f"$ {result.command}\n{result.output}\n\n"
         f"{describe_exit('promote', result.code)}\n\n{NO_FAILOVER}"
+    )
+
+
+# --- what a replica needs, and the credential both ends hold -------------
+#
+# The primary's screen hands the operator what each replica's screen will
+# ask for: where to replicate from, as whom, and with which password. The
+# password lives in a file both ends reference (keel reads it with
+# `read_secret_file`: root owned, 0600 or stricter, one trailing newline
+# dropped). keel refuses `generate: true` for it, because both ends must
+# hold the same value, so the console generates it once, on the primary,
+# and shows it once.
+
+# keel/system/dbmariadb.py REPLICATION_USER, reproduced like the exit codes
+# above. It is a constant there and not a field on purpose: both ends of a
+# pair must name the same account.
+REPLICATION_ACCOUNT = "repl"
+DEFAULT_PORTS = {"mariadb": 3306}
+PASSWORD_BYTES = 24
+SECRET_DIR_MODE = 0o700
+REPLACING = ".keelcli-tmp"
+ORIGIN_PREFIX = 64
+WILDCARDS = ("::", "0.0.0.0")
+NO_ORIGIN = (
+    "NO ORIGIN IS AUTHORIZED. 'Allow replication from' was left empty, so"
+    " keel removed every replication account and no replica can connect."
+    " Run this screen again and give the prefix your replicas live on."
+)
+LOOPBACK_ONLY = (
+    "This server answers on loopback only, so no replica can reach it."
+    " Add one of this node's addresses to 'Answer on', or :: for all of"
+    " them, and run this screen again."
+)
+
+
+def generate_password() -> str:
+    """A replication password: URL safe, so it survives a copy and paste
+
+    keel quotes it into SQL itself and refuses control characters, which
+    token_urlsafe never produces.
+    """
+    return secrets.token_urlsafe(PASSWORD_BYTES)
+
+
+def secret_exists(path: str) -> bool:
+    """Whether a non empty secret file is already there to be kept"""
+    try:
+        return os.path.getsize(path) > 0
+    except OSError:
+        return False
+
+
+def write_secret(path: str, value: str) -> str:
+    """Write the replication password where the description references it
+
+    Root only from the first byte and all at once: the value goes to a new
+    file beside it (created 0600), which then replaces the old one, so an
+    interrupted write never leaves half a password where keel reads it and
+    a file that existed with a wider mode is replaced rather than reused.
+    Its directory is made 0700 when it has to be made. The reason on
+    failure, else "".
+    """
+    try:
+        os.makedirs(os.path.dirname(path) or ".", SECRET_DIR_MODE,
+                    exist_ok=True)
+    except OSError as error:
+        return f"{path}: {error.strerror}"
+    return replace_file(path, value + "\n")
+
+
+def replace_file(path: str, text: str) -> str:
+    """Replace a file with `text`, root only and all at once"""
+    written, problem = write_beside(path, text, REPLACING)
+    if problem:
+        return problem
+    try:
+        os.replace(written, path)
+    except OSError as error:
+        discard_spec(written)
+        return f"{path}: {error.strerror}"
+    return ""
+
+
+def read_back(path: str) -> str | None:
+    """A file's text as it is now, or None when there is none"""
+    try:
+        with open(path) as fob:
+            return fob.read()
+    except OSError:
+        return None
+
+
+def restore(path: str, text: str | None) -> str:
+    """Put a file back as `read_back` found it: the reason on failure
+
+    None means it did not exist, so it is removed again.
+    """
+    if text is not None:
+        return replace_file(path, text)
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+    except OSError as error:
+        return f"{path}: {error.strerror}"
+    return ""
+
+
+def parse_address(text: str):
+    """An address object, or None for anything that is not a literal"""
+    try:
+        return ipaddress.ip_address(text.strip().strip("[]"))
+    except ValueError:
+        return None
+
+
+def is_global(text: str) -> bool:
+    """An address another machine can reach: not loopback, not link local,
+    not the wildcard"""
+    found = parse_address(text)
+    return found is not None and not (
+        found.is_loopback or found.is_link_local or found.is_unspecified
+    )
+
+
+def ipv6_first(values: list[str]) -> list[str]:
+    """The same addresses, IPv6 before IPv4 and public before private
+    (a unique local fd00::/8, an RFC 1918 10/8) within each, otherwise in
+    the order given"""
+
+    def rank(one: str) -> tuple[bool, bool]:
+        found = parse_address(one)
+        if found is None:
+            return (False, False)
+        return (found.version != 6, found.is_private)
+
+    return sorted(values, key=rank)
+
+
+def reachable(listen: list[str], machine: list[str]) -> list[str]:
+    """The addresses a replica can replicate from, IPv6 first
+
+    What the server answers on decides it: the global literals of
+    `listen`, or every address of the machine when `listen` is absent or
+    holds the wildcard. Loopback alone is reachable by nobody, and the
+    empty list says so.
+    """
+    if not listen or any(one.strip() in WILDCARDS for one in listen):
+        candidates = machine
+    else:
+        candidates = listen
+    unique = list(dict.fromkeys(one for one in candidates if is_global(one)))
+    return ipv6_first(unique)
+
+
+def primary_listen(listen: str, machine: list[str]) -> str:
+    """What the primary's form offers for 'Answer on'
+
+    A description that answers on loopback only (what every appliance
+    ships) cannot be replicated from, so the form offers this node's own
+    addresses in front of it, IPv6 first. Anything else the operator
+    already chose is offered as it is.
+    """
+    current = addresses(listen)
+    if reachable(current, machine) or not machine:
+        return listen
+    own = ipv6_first([one for one in machine if is_global(one)])
+    return ", ".join(own + current)
+
+
+def suggested_origin(allowed_from: str, machine: list[str]) -> str:
+    """What the primary's form offers for 'Allow replication from'
+
+    Left as it is when the description already names origins. Otherwise
+    the /64 of this node's first IPv6 address, public before unique local:
+    replicas usually live on the prefix their primary lives on, and an
+    empty field authorizes nobody (keel drops every replication account).
+    """
+    if allowed_from.strip():
+        return allowed_from
+    for one in ipv6_first([one for one in machine if is_global(one)]):
+        found = parse_address(one)
+        if found.version == 6:
+            network = ipaddress.ip_network(
+                f"{found}/{ORIGIN_PREFIX}", strict=False
+            )
+            return str(network)
+    return allowed_from
+
+
+def bracketed(address: str) -> str:
+    """An IPv6 literal in brackets, the way it is written with a port"""
+    return f"[{address}]" if ":" in address else address
+
+
+def handout_text(
+    engine: str, where: list[str], secret: str, password: str = "",
+    origins: list[str] | None = None, failure: str = "",
+) -> str:
+    """What the operator carries to each replica's screen
+
+    The password appears only when it was generated in this run: it is
+    shown this once, and afterwards only the file holds it. So it is shown
+    even when the apply failed, under a warning that says so. The address
+    is written bare, the way the replica's field wants it.
+    """
+    port = DEFAULT_PORTS.get(engine, "")
+    lines = []
+    if failure:
+        lines += [
+            f"THIS NODE IS NOT READY: {failure}. No replica can use it until"
+            " the apply succeeds; the output on the previous screen says"
+            " why.", "",
+        ]
+    if not origins:
+        lines += [NO_ORIGIN, ""]
+    lines += ["What each replica's screen asks for:", ""]
+    if where:
+        lines.append("  Replicate from (address), IPv6 first:")
+        lines += [f"    {one}" for one in where]
+        lines.append(
+            f"    (with a port it is written {bracketed(where[0])}:{port};"
+            " type the bare address)"
+        )
+    else:
+        lines += [f"  Replicate from: none. {LOOPBACK_ONLY}"]
+    if origins:
+        lines.append(f"  Allowed to replicate: {', '.join(origins)}")
+    lines += [
+        f"  Port: {port} (leave the field blank)",
+        f"  Replication account: {REPLICATION_ACCOUNT} (keel names it;"
+        " both ends use it)",
+        f"  Password kept in: {secret} (root, mode 0600)",
+    ]
+    if password:
+        lines += [
+            "", "Replication password, generated now and shown ONCE:", "",
+            f"  {password}", "",
+            "Paste it into each replica's screen. Afterwards only the"
+            " file above holds it.",
+        ]
+    else:
+        lines += [
+            "", f"The password is the one already in {secret}; it is not"
+            " shown here.",
+        ]
+    return "\n".join(lines)
+
+
+def replica_warning(host: str) -> str:
+    """The question asked before a replica screen changes anything"""
+    return (
+        "Becoming a replica REPLACES the data on this node with a copy of"
+        f" the primary at {bracketed(host)}.\n\n"
+        "If this server holds any database that is not its own, keel"
+        " refuses and this console asks once more, naming them; a Yes"
+        " there drops them and cannot be undone. Move anything you need"
+        " elsewhere first.\n\n"
+        f"{THIS_NODE}\n\nGo on and make this node a replica?"
     )

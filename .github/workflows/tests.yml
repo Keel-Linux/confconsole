@@ -7,7 +7,7 @@ jobs:
   tests:
     # Threshold 100: ifutil.py, keelcli.py, keelbanner.py, dbscreen.py,
     # wgcli.py, wgscreen.py and the Instance menu entries, the database
-    # mode and overlay screens included, measure 100 percent (455 tests,
+    # mode and overlay screens included, measure 100 percent (543 tests,
     # lines and branches). The
     # package list names the modules with tests; a module is appended as
     # its tests land (COVERAGE.md plan) and the threshold is only ever

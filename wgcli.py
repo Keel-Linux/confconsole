@@ -13,7 +13,6 @@ field means, and every refusal, is keel's (``docs/spec.md`` and
 """
 
 import ipaddress
-import os
 
 import keelcli
 
@@ -21,6 +20,13 @@ TITLE = "Overlay network (WireGuard)"
 KEY = ["network", "wireguard", "key"]
 SUGGEST = ["network", "wireguard", "suggest-address"]
 CONFIRM = ["network", "confirm"]
+# Unlike the database screens (keelcli.APPLY), this one exists to change
+# the network: no --skip-network, so keel brings the overlay up under the
+# window. The certificate is still not asked for from here.
+APPLY = [
+    "spec", "apply", "--system-only", "--non-interactive",
+    "--defer-certificate",
+]
 DEFAULT_PORT = 51820
 DEFAULT_KEEPALIVE = "25"
 # what apply prints for a change it brought up and that now waits
@@ -46,17 +52,6 @@ CONFIRM_QUESTION = (
     " and the change reverts unless a new session confirms it.\n\n"
     "Answer No to confirm from a new session instead."
 )
-
-
-def load(path: str) -> tuple[dict, str]:
-    """The description, or a new one when this machine has none yet
-
-    A node joins an overlay before anything else was declared for it, so
-    a missing file is a description with nothing in it, not an error.
-    """
-    if not os.path.exists(path):
-        return {"version": 1}, ""
-    return keelcli.load_spec(path)
 
 
 def overlay_of(document: dict) -> dict:

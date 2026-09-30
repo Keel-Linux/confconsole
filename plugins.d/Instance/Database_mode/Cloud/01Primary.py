@@ -11,8 +11,12 @@ TEXT = (
     " IPv6 and no NAT the /64 a fleet lives on is stable where a single"
     " address goes stale on every rebuild. A name is accepted and is"
     " fragile: it fails quietly when DNS does.\n\n"
+    "Once it is configured, this screen shows what each replica needs:"
+    " the address to replicate from, the account and where the password"
+    " is kept, and offers to generate that password.\n\n"
     "A primary holds authorizations, not replicas. Nothing here creates"
-    " a replica anywhere.\n\n" + keelcli.NO_FAILOVER
+    " a replica anywhere.\n\n" + keelcli.THIS_NODE + "\n\n"
+    + keelcli.NO_FAILOVER
 )
 
 
@@ -24,13 +28,31 @@ def run():
             ("Allow replication from", "allowed_from", 24, 44),
             ("Replication password file", "secret", 24, 44),
         ],
+        offer_addresses=True,
     )
     if answers is None:
         return
-    dbscreen.apply_mode(
+    server = keelcli.primary_server(
+        answers["engine"], answers["listen"],
+        answers["allowed_from"], answers["secret"],
+    )
+    secret = dbscreen.secret_path(server)
+    password = dbscreen.primary_password(console, TITLE, secret)
+    if password is None:
+        return
+    result = dbscreen.apply_mode(console, TITLE, server, password=password)
+    if result is None:
+        return
+    where = keelcli.reachable(
+        server.get("listen") or [], dbscreen.local_addresses()
+    )
+    failure = ""
+    if result.code != keelcli.OK:
+        failure = keelcli.describe_exit("apply", result.code)
+    dbscreen.show_secret(
         console, TITLE,
-        keelcli.primary_server(
-            answers["engine"], answers["listen"],
-            answers["allowed_from"], answers["secret"],
+        keelcli.handout_text(
+            answers["engine"], where, secret, password,
+            origins=server["replication"]["allowed_from"], failure=failure,
         ),
     )

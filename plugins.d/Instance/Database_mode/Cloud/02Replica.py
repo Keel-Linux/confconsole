@@ -10,9 +10,9 @@ TEXT = (
     " now. keel refuses unless this server holds nothing of its own, and"
     " asks before it destroys anything.\n\n"
     "Give the primary's literal IPv6 address, never a name: on Debian"
-    " localhost is not an IPv6 name. The password file is the one the"
-    " primary's own screen names, with the same value on both.\n\n"
-    + keelcli.NO_FAILOVER
+    " localhost is not an IPv6 name. The primary's own screen shows the"
+    " address, and the password asked for next.\n\n"
+    + keelcli.THIS_NODE + "\n\n" + keelcli.NO_FAILOVER
 )
 
 
@@ -23,16 +23,22 @@ def run():
             ("Replicate from (address)", "host", 26, 42),
             ("Port (blank: default)", "port", 26, 42),
             ("Answer on (addresses)", "listen", 26, 42),
-            ("Replication password file", "secret", 26, 42),
         ],
     )
     if answers is None:
         return
+    server = keelcli.replica_server(
+        answers["engine"], answers["listen"],
+        answers["host"], answers["port"], answers["secret"],
+    )
+    password = dbscreen.replica_password(
+        console, TITLE, dbscreen.secret_path(server)
+    )
+    if password is None:
+        return
+    question = keelcli.replica_warning(answers["host"].strip())
+    if console.yesno(question, autosize=True) != "ok":
+        return
     dbscreen.apply_mode(
-        console, TITLE,
-        keelcli.replica_server(
-            answers["engine"], answers["listen"],
-            answers["host"], answers["port"], answers["secret"],
-        ),
-        may_destroy=True,
+        console, TITLE, server, may_destroy=True, password=password
     )

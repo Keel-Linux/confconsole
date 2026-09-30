@@ -5,10 +5,11 @@ This module shows this node's public key and overlay address, asking
 ``keel network wireguard key`` for the key (which makes the key pair on
 first use), collects an address or a peer, writes it into the instance
 description through the same stage, validate and commit as the database
-screens (``dbscreen.commit``), and hands the description to ``keel spec
-apply --system-only``. keel brings the overlay up under the confirmation
-window of decision 0018; the screen then says how to confirm, and offers
-to confirm from here, which keel accepts from a console only.
+screens, and hands the description to ``keel spec apply --system-only``
+(``wgcli.APPLY``, without the database screens' ``--skip-network``). keel
+brings the overlay up under the confirmation window of decision 0018;
+the screen then says how to confirm, and offers to confirm from here,
+which keel accepts from a console only.
 
 ``console`` is passed in, so each function is tested with a scripted
 fake and no dialog opens.
@@ -45,7 +46,7 @@ def run(console) -> None:
     if key is None:
         return
     while True:
-        document, problem = wgcli.load(path)
+        document, problem = keelcli.load_description(path)
         if problem:
             console.msgbox(wgcli.TITLE, problem)
             return
@@ -141,12 +142,40 @@ def remove_peer(console, path: str, document: dict, wireguard: dict):
         document, wgcli.without_peer(wireguard, key)))
 
 
+def commit(console, path: str, document: dict) -> bool:
+    """Stage, validate, commit; True once the description is in place
+
+    What the operator typed becomes the description this machine boots
+    from only once `keel spec validate` has accepted it, as on the
+    database screens; otherwise the file stays exactly as it was and
+    keel's own errors are shown.
+    """
+    staged, problem = keelcli.stage_spec(document, path)
+    if problem:
+        console.msgbox(wgcli.TITLE, problem)
+        return False
+    result = dbscreen.call(console, wgcli.TITLE, [
+        "spec", "validate", "--no-secret-files", "--spec", staged
+    ])
+    if result is None or result.code != keelcli.OK:
+        keelcli.discard_spec(staged)
+        if result is not None:
+            console.msgbox(wgcli.TITLE, keelcli.invalid_text(path, result),
+                           autosize=True)
+        return False
+    problem = keelcli.commit_spec(staged, path)
+    if problem:
+        console.msgbox(wgcli.TITLE, problem)
+        return False
+    return True
+
+
 def apply(console, path: str, document: dict) -> None:
     """Commit the description, converge it, and see the change kept"""
-    if not dbscreen.commit(console, wgcli.TITLE, path, document):
+    if not commit(console, path, document):
         return
     result = dbscreen.call(console, wgcli.TITLE,
-                           keelcli.APPLY + ["--spec", path])
+                           wgcli.APPLY + ["--spec", path])
     if result is None:
         return
     console.msgbox(wgcli.TITLE, wgcli.applied_text(result), autosize=True)

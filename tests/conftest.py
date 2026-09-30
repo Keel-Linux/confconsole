@@ -177,13 +177,39 @@ class FakeConsole:
 
     OK = "ok"
 
-    def __init__(self, forms=(), yesno=(), inputs=(), menus=()):
+    def __init__(self, forms=(), yesno=(), inputs=(), passwords=(),
+                 menus=()):
         self.forms = list(forms)
         self.yesnos = list(yesno)
         self.inputs = list(inputs)
+        self.passwords = list(passwords)
         self.menus = list(menus)
         self.calls = []
         self.msgbox_kwargs = {}
+
+    @property
+    def console(self):
+        # Console.console is the pythondialog Dialog; the fake stands in
+        # for both, so a textbox reached through it is recorded here.
+        return self
+
+    def textbox(self, path, height, width, **kwargs):
+        import os
+        import stat
+
+        mode = stat.S_IMODE(os.stat(path).st_mode)
+        with open(path) as fob:
+            self.calls.append(
+                ("textbox", kwargs.get("title"), fob.read(), path, mode)
+            )
+        return self.OK
+
+    def _wrapper(self, dialog, text, *args, **kwargs):
+        # Only the password box is reached through the wrapper by the
+        # code under test; anything else is a test that went wrong.
+        assert dialog == "passwordbox", dialog
+        self.calls.append(("passwordbox", kwargs.get("title"), text, kwargs))
+        return self.passwords.pop(0)
 
     def inputbox(self, title, text, init="", **kwargs):
         self.calls.append(("inputbox", title, text, init))
@@ -266,3 +292,69 @@ def net_stubs(confconsole, monkeypatch):
         lambda ifname, inet_family="inet": state["methods"][inet_family],
     )
     return state
+
+
+# --- the database mode screens (test_database_mode, test_database_handout)
+
+MODE_DIR = ROOT / "plugins.d" / "Instance" / "Database_mode"
+# What a MariaDB appliance boots with once inspect has described it: the
+# engine is known, so a screen never has to ask the machine what it runs.
+BASE = {
+    "version": 1,
+    "instance": {"hostname": "mariadb"},
+    "database": {"server": {"engine": "mariadb", "role": "standalone"}},
+}
+
+
+def make_result(argv, code=0, stdout="", stderr=""):
+    import keelcli
+
+    return keelcli.Result(("keel", *argv), code, stdout, stderr)
+
+
+@pytest.fixture
+def keel(monkeypatch):
+    """Replace keelcli.call; `calls` records argv, `answers` steers it."""
+    import keelcli
+
+    state = {"calls": [], "answers": [], "default": (0, "", "")}
+
+    def fake_call(argv):
+        state["calls"].append(list(argv))
+        if state["answers"]:
+            outcome = state["answers"].pop(0)
+        else:
+            outcome = state["default"]
+        if isinstance(outcome, Exception):
+            raise outcome
+        return make_result(argv, *outcome)
+
+    monkeypatch.setattr(keelcli, "call", fake_call)
+    return state
+
+
+@pytest.fixture
+def spec(tmp_path, monkeypatch):
+    """A description on disk that KEEL_SPEC points at."""
+    import yaml
+
+    path = tmp_path / "instance.yaml"
+    path.write_text(yaml.safe_dump(BASE))
+    monkeypatch.setenv("KEEL_SPEC", str(path))
+    return path
+
+
+@pytest.fixture
+def screen(monkeypatch):
+    """Load one mode screen with a fake console, the way confconsole does"""
+    import plugin
+
+    monkeypatch.delenv("KEEL_SPEC", raising=False)
+
+    def _load(relative, **console_kwargs):
+        loaded = plugin.Plugin(str(MODE_DIR / relative))
+        console = FakeConsole(**console_kwargs)
+        loaded.updateGlobals({"console": console})
+        return loaded, console
+
+    return _load

@@ -162,7 +162,7 @@ class TestTexts:
         assert "No peer yet." in text
 
     def test_a_pending_change_says_how_to_keep_it(self):
-        result = make_result(keelcli.APPLY, 0, APPLIED)
+        result = make_result(wgcli.APPLY, 0, APPLIED)
         assert wgcli.is_pending(result)
         text = wgcli.applied_text(result)
         assert "REVERTS BY ITSELF" in text
@@ -170,8 +170,8 @@ class TestTexts:
         assert "the spec was applied" in text
 
     def test_nothing_pending_says_nothing_of_confirming(self):
-        for result in (make_result(keelcli.APPLY, 0, "unchanged\n"),
-                       make_result(keelcli.APPLY, 16, APPLIED)):
+        for result in (make_result(wgcli.APPLY, 0, "unchanged\n"),
+                       make_result(wgcli.APPLY, 16, APPLIED)):
             assert not wgcli.is_pending(result)
             assert "REVERTS" not in wgcli.applied_text(result)
 
@@ -183,12 +183,12 @@ class TestTexts:
         assert "no public key" in wgcli.command_text(
             "key", make_result(wgcli.KEY, 16))
 
-    def test_a_missing_description_is_a_new_one(self, tmp_path):
-        assert wgcli.load(str(tmp_path / "none.yaml")) == ({"version": 1},
-                                                            "")
-        broken = tmp_path / "broken.yaml"
-        broken.write_text("- a list\n")
-        assert "not a mapping" in wgcli.load(str(broken))[1]
+    def test_apply_is_allowed_to_move_the_network(self):
+        """The database screens pass --skip-network; this one must not,
+        since bringing the overlay up is what it is for"""
+        assert "--skip-network" in keelcli.APPLY
+        assert "--skip-network" not in wgcli.APPLY
+        assert wgcli.APPLY[:3] == ["spec", "apply", "--system-only"]
 
 
 class TestScreen:
@@ -374,6 +374,33 @@ class TestScreen:
         assert path.read_text() == before
         assert "not a WireGuard key" in console.calls[-2][2]
         assert "spec apply --system-only" not in commands(keel)
+
+    @pytest.mark.parametrize("step", ["stage", "validate", "commit"])
+    def test_a_description_that_cannot_be_written(self, keel, spec,
+                                                  monkeypatch, step):
+        path = spec(wgcli.with_overlay(BASE, OVERLAY))
+        before = path.read_text()
+        if step == "stage":
+            monkeypatch.setattr(keelcli, "stage_spec",
+                                lambda document, where: ("", "no space"))
+        elif step == "validate":
+            keel["answers"]["spec validate"] = [
+                keelcli.KeelNotInstalled(keelcli.NOT_INSTALLED)]
+        else:
+            monkeypatch.setattr(keelcli, "commit_spec",
+                                lambda staged, where: "permission denied")
+        console = FakeConsole(
+            menus=[("ok", wgscreen.ADD), ("cancel", "")],
+            forms=[("ok", [OTHER_KEY, "fd00:6b65:1::3", "", ""])],
+        )
+
+        wgscreen.run(console)
+
+        assert path.read_text() == before
+        assert "spec apply --system-only" not in commands(keel)
+        expected = {"stage": "no space", "validate": keelcli.NOT_INSTALLED,
+                    "commit": "permission denied"}[step]
+        assert console.calls[-2][2] == expected
 
     def test_a_cancelled_form_changes_nothing(self, keel, spec):
         spec(wgcli.with_overlay(BASE, OVERLAY))
