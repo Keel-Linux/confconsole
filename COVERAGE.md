@@ -272,6 +272,34 @@ and the handout on a terminal too small for its box. keelcli.py 334
 statements and 60 branches, dbscreen.py 204 and 66, both 100 percent.
 Total **504 tests**, 100 percent over the measured package.
 
+## Measured on 2026-09-30 with the overlay screen
+
+| File | Tests | Stmts | Branches | Cover |
+|------|-------|-------|----------|-------|
+| wgcli.py (new: what the overlay screen builds and says, without a dialog) | in tests/test_overlay_screen.py: the overlay read out of a description and written back as a copy, the address and port, the other node's address as a one-host prefix, a peer with blank fields left out, a peer replaced by key, removed, listed, every screen text including the confirmation instructions whenever a network change waits (the overlay's or the uplink's, brought up before a later step failed, or left by an earlier run) and only then, and an apply argv without --skip-network and with --skip-uplink | 84 | 10 | 100 percent, 0 missed, 0 partial |
+| wgscreen.py (new: the dialog flow of the overlay screen) | in tests/test_overlay_screen.py: the public key from keel, the choices offered with and without an address and peers, keel's suggested first address, a peer added then confirmed from the console or left to a new session, a refused apply, an invalid peer, a description that cannot be staged, validated or committed (each leaving the file as it was), a cancelled form, a removal that asks first, and keel missing at each step | 102 | 42 | 100 percent, 0 missed, 0 partial |
+| plugins.d/Instance | Overlay_network.py joins the entries every loader test runs | 4 more | 0 more | 100 percent, 0 missed, 0 partial |
+
+Total 546 tests, 100 percent over the measured package, which is now
+`ifutil,keelbanner,keelcli,dbscreen,wgcli,wgscreen,plugins.d/Instance`.
+Threshold in the caller: 100, unchanged. `tests/conftest.py`'s
+`FakeConsole.menu` answers from a `menus` queue when a test scripts one,
+and fails as before when none is scripted.
+
+Unlike the database screens, this one applies without `--skip-network`:
+bringing the overlay up under keel's window is what it is for. It passes
+keel's `--skip-uplink` (keel#49), so the uplink never moves from here,
+and the package recommends `keel (>= 0.11.0)`, the first keel with that
+flag.
+
+Two of the 546 hand the descriptions the screen builds to a real `keel
+spec validate`, so what the screen writes is judged by keel's own rules
+and not by a mock of them: a valid address and peer pass, and a bad
+port, key, endpoint, address and keepalive are each named by keel. They
+run when a keel 0.11 or later is at hand (on `PATH`, or named by
+`KEEL`), and skip otherwise, since keel is not a dependency of this
+package.
+
 ## Plan to reach 90 percent per file
 
 Priority order (size: small under 30 lines of test, medium under 150,

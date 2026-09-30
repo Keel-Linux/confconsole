@@ -177,11 +177,13 @@ class FakeConsole:
 
     OK = "ok"
 
-    def __init__(self, forms=(), yesno=(), inputs=(), passwords=()):
+    def __init__(self, forms=(), yesno=(), inputs=(), passwords=(),
+                 menus=()):
         self.forms = list(forms)
         self.yesnos = list(yesno)
         self.inputs = list(inputs)
         self.passwords = list(passwords)
+        self.menus = list(menus)
         self.calls = []
         self.msgbox_kwargs = {}
 
@@ -230,8 +232,13 @@ class FakeConsole:
         self.calls.append(("infobox", text))
         return self.OK
 
-    def menu(self, *args, **kwargs):
-        raise AssertionError("menu must not be opened by these tests")
+    def menu(self, title, text, choices, **kwargs):
+        """Answers from `menus` when a test scripts them; opening a menu
+        nobody scripted is a failure, as it always was"""
+        if not self.menus:
+            raise AssertionError("menu must not be opened by these tests")
+        self.calls.append(("menu", title, text, choices))
+        return self.menus.pop(0)
 
 
 @pytest.fixture

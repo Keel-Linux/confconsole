@@ -34,6 +34,7 @@ INSPECT_INCOMPLETE = 13
 DRIFT_FOUND = 14
 APPLY_NEEDS_ROOT = 15
 APPLY_FAILED = 16
+NETWORK_NOT_CONFIRMED = 21
 
 COMMON_MESSAGES = {
     OK: "done",
@@ -64,6 +65,16 @@ COMMAND_MESSAGES = {
         " replica, which keel diff reports as drift until you change it",
         APPLY_FAILED: "nothing was promoted; the reason is above",
         APPLY_NEEDS_ROOT: "promoting must run as root",
+    },
+    "confirm": {
+        OK: "confirmed: the network change stays",
+        NETWORK_NOT_CONFIRMED: "not confirmed: the change reverts when its"
+        " window ends unless a new session confirms it",
+    },
+    "key": {
+        OK: "this node's public key; the private key never leaves the"
+        " machine",
+        APPLY_FAILED: "no public key: the reason is above",
     },
     "inspect": {
         OK: "spec written; every required field was inferred",
