@@ -235,6 +235,22 @@ the rows each terminal admits and the indent the screen gives, is derived
 from the size the fixture itself measures. Redrawing the art changes no
 test.
 
+## Measured on 2026-09-30 with what the primary hands a replica
+
+| File | Tests | Stmts | Branches | Cover |
+|------|-------|-------|----------|-------|
+| keelcli.py | as before plus those in tests/test_database_handout.py on the addresses a replica can use (IPv6 first, loopback and link local and names left out, the wildcard meaning every address of the machine), the addresses a loopback only primary is offered, the handout, the warning before a replica acts, and the secret file (0600 in a 0700 directory, a wider mode narrowed, one trailing newline, a generated value) | 265 | 36 | 100 percent, 0 missed, 0 partial |
+| dbscreen.py | as before plus the password steps (kept, generated, typed, pasted, blank, cancelled), the password written after validation and before the apply and never for a refused description, and every stable address of this machine read off `/sys/class/net`, temporary and deprecated ones left out | 148 | 56 | 100 percent, 0 missed, 0 partial |
+| plugins.d/Instance | as before, the Primary and Replica screens driven end to end with a fake console: the form, the password, the warning, the apply and the handout | 106 | 22 | 100 percent, 0 missed, 0 partial |
+| ifutil.py, keelbanner.py | unchanged | 603 | 246 | 100 percent, 0 missed, 0 partial |
+
+Total 462 tests, up from 419, 45 of them in the new
+tests/test_database_handout.py. Threshold in the caller: 100, unchanged,
+and so is the measured package. The `keel`, `spec` and `screen` fixtures
+moved from tests/test_database_mode.py to tests/conftest.py, because both
+database files use them, and `FakeConsole` answers `_wrapper
+("passwordbox", ...)` from a `passwords` queue.
+
 ## Plan to reach 90 percent per file
 
 Priority order (size: small under 30 lines of test, medium under 150,

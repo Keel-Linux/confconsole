@@ -8,8 +8,10 @@ is the command's, so the menu and the headless run share one code path
 rest are pure functions over its result, tested without a ``keel``.
 """
 
+import ipaddress
 import json
 import os
+import secrets
 import subprocess
 from dataclasses import dataclass
 
@@ -452,4 +454,184 @@ def promote_text(result: Result) -> str:
     return (
         f"$ {result.command}\n{result.output}\n\n"
         f"{describe_exit('promote', result.code)}\n\n{NO_FAILOVER}"
+    )
+
+
+# --- what a replica needs, and the credential both ends hold -------------
+#
+# The primary's screen hands the operator what each replica's screen will
+# ask for: where to replicate from, as whom, and with which password. The
+# password lives in a file both ends reference (keel reads it with
+# `read_secret_file`: root owned, 0600 or stricter, one trailing newline
+# dropped). keel refuses `generate: true` for it, because both ends must
+# hold the same value, so the console generates it once, on the primary,
+# and shows it once.
+
+# keel/system/dbmariadb.py REPLICATION_USER, reproduced like the exit codes
+# above. It is a constant there and not a field on purpose: both ends of a
+# pair must name the same account.
+REPLICATION_ACCOUNT = "repl"
+DEFAULT_PORTS = {"mariadb": 3306}
+PASSWORD_BYTES = 24
+SECRET_DIR_MODE = 0o700
+SECRET_MODE = 0o600
+WILDCARDS = ("::", "0.0.0.0")
+LOOPBACK_ONLY = (
+    "This server answers on loopback only, so no replica can reach it."
+    " Add one of this node's addresses to 'Answer on', or :: for all of"
+    " them, and run this screen again."
+)
+
+
+def generate_password() -> str:
+    """A replication password: URL safe, so it survives a copy and paste
+
+    keel quotes it into SQL itself and refuses control characters, which
+    token_urlsafe never produces.
+    """
+    return secrets.token_urlsafe(PASSWORD_BYTES)
+
+
+def secret_exists(path: str) -> bool:
+    """Whether a non empty secret file is already there to be kept"""
+    try:
+        return os.path.getsize(path) > 0
+    except OSError:
+        return False
+
+
+def write_secret(path: str, value: str) -> str:
+    """Write the replication password where the description references it
+
+    Root only from the first byte: the file is created 0600 and its mode is
+    set again in case it existed with a wider one, and its directory is
+    made 0700 when it has to be made. The reason on failure, else "".
+    """
+    try:
+        os.makedirs(os.path.dirname(path) or ".", SECRET_DIR_MODE,
+                    exist_ok=True)
+        descriptor = os.open(
+            path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, SECRET_MODE
+        )
+        with os.fdopen(descriptor, "w") as fob:
+            os.fchmod(fob.fileno(), SECRET_MODE)
+            fob.write(value + "\n")
+    except OSError as error:
+        return f"{path}: {error.strerror}"
+    return ""
+
+
+def parse_address(text: str):
+    """An address object, or None for anything that is not a literal"""
+    try:
+        return ipaddress.ip_address(text.strip().strip("[]"))
+    except ValueError:
+        return None
+
+
+def is_global(text: str) -> bool:
+    """An address another machine can reach: not loopback, not link local,
+    not the wildcard"""
+    found = parse_address(text)
+    return found is not None and not (
+        found.is_loopback or found.is_link_local or found.is_unspecified
+    )
+
+
+def ipv6_first(values: list[str]) -> list[str]:
+    """The same addresses, IPv6 before IPv4 and public before private
+    (a unique local fd00::/8, an RFC 1918 10/8) within each, otherwise in
+    the order given"""
+
+    def rank(one: str) -> tuple[bool, bool]:
+        found = parse_address(one)
+        if found is None:
+            return (False, False)
+        return (found.version != 6, found.is_private)
+
+    return sorted(values, key=rank)
+
+
+def reachable(listen: list[str], machine: list[str]) -> list[str]:
+    """The addresses a replica can replicate from, IPv6 first
+
+    What the server answers on decides it: the global literals of
+    `listen`, or every address of the machine when `listen` is absent or
+    holds the wildcard. Loopback alone is reachable by nobody, and the
+    empty list says so.
+    """
+    if not listen or any(one.strip() in WILDCARDS for one in listen):
+        candidates = machine
+    else:
+        candidates = listen
+    unique = list(dict.fromkeys(one for one in candidates if is_global(one)))
+    return ipv6_first(unique)
+
+
+def primary_listen(listen: str, machine: list[str]) -> str:
+    """What the primary's form offers for 'Answer on'
+
+    A description that answers on loopback only (what every appliance
+    ships) cannot be replicated from, so the form offers this node's own
+    addresses in front of it, IPv6 first. Anything else the operator
+    already chose is offered as it is.
+    """
+    current = addresses(listen)
+    if reachable(current, machine) or not machine:
+        return listen
+    own = ipv6_first([one for one in machine if is_global(one)])
+    return ", ".join(own + current)
+
+
+def bracketed(address: str) -> str:
+    """An IPv6 literal in brackets, the way it is written with a port"""
+    return f"[{address}]" if ":" in address else address
+
+
+def handout_text(
+    engine: str, where: list[str], secret: str, password: str = ""
+) -> str:
+    """What the operator carries to each replica's screen
+
+    The password appears only when it was generated in this run: it is
+    shown this once, and afterwards only the file holds it.
+    """
+    port = DEFAULT_PORTS.get(engine, "")
+    lines = ["What each replica's screen asks for:", ""]
+    if where:
+        lines.append("  Replicate from (address), IPv6 first:")
+        lines += [f"    {one}   ({bracketed(one)}:{port})" for one in where]
+    else:
+        lines += [f"  Replicate from: none. {LOOPBACK_ONLY}"]
+    lines += [
+        f"  Port: {port} (leave the field blank)",
+        f"  Replication account: {REPLICATION_ACCOUNT} (keel names it;"
+        " both ends use it)",
+        f"  Password kept in: {secret} (root, mode 0600)",
+    ]
+    if password:
+        lines += [
+            "", "Replication password, generated now and shown ONCE:", "",
+            f"  {password}", "",
+            "Paste it into each replica's screen. Afterwards only the"
+            " file above holds it.",
+        ]
+    else:
+        lines += [
+            "", f"The password is the one already in {secret}; it is not"
+            " shown here.",
+        ]
+    return "\n".join(lines)
+
+
+def replica_warning(host: str) -> str:
+    """The question asked before a replica screen changes anything"""
+    return (
+        "Becoming a replica REPLACES the data on this node with a copy of"
+        f" the primary at {bracketed(host)}.\n\n"
+        "If this server holds any database that is not its own, keel"
+        " refuses and this console asks once more, naming them; a Yes"
+        " there drops them and cannot be undone. Move anything you need"
+        " elsewhere first.\n\n"
+        f"{THIS_NODE}\n\nGo on and make this node a replica?"
     )

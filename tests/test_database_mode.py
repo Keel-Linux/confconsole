@@ -13,55 +13,17 @@ import yaml
 
 import dbscreen
 import keelcli
-import plugin
-from conftest import FakeConsole
+from conftest import BASE, FakeConsole, make_result
 
-MODE_DIR = (
-    Path(__file__).resolve().parent.parent
-    / "plugins.d" / "Instance" / "Database_mode"
-)
 PRIMARY_HOST = "2804:710:d0:5:bc:24ff:fe25:b2"
 PREFIX = "2804:710:d0:5::/64"
 SECRET = "/etc/keel/secrets/replication_password"
-# What a MariaDB appliance boots with once inspect has described it: the
-# engine is known, so a screen never has to ask the machine what it runs.
-BASE = {
-    "version": 1,
-    "instance": {"hostname": "mariadb"},
-    "database": {"server": {"engine": "mariadb", "role": "standalone"}},
-}
 
 
-def make_result(argv, code=0, stdout="", stderr=""):
-    return keelcli.Result(("keel", *argv), code, stdout, stderr)
-
-
-@pytest.fixture
-def keel(monkeypatch):
-    """Replace keelcli.call; `calls` records argv, `answers` steers it."""
-    state = {"calls": [], "answers": [], "default": (0, "", "")}
-
-    def fake_call(argv):
-        state["calls"].append(list(argv))
-        if state["answers"]:
-            outcome = state["answers"].pop(0)
-        else:
-            outcome = state["default"]
-        if isinstance(outcome, Exception):
-            raise outcome
-        return make_result(argv, *outcome)
-
-    monkeypatch.setattr(keelcli, "call", fake_call)
-    return state
-
-
-@pytest.fixture
-def spec(tmp_path, monkeypatch):
-    """A description on disk that KEEL_SPEC points at."""
-    path = tmp_path / "instance.yaml"
-    path.write_text(yaml.safe_dump(BASE))
-    monkeypatch.setenv("KEEL_SPEC", str(path))
-    return path
+@pytest.fixture(autouse=True)
+def no_machine_addresses(monkeypatch):
+    """The machine is never asked for its addresses by these tests"""
+    monkeypatch.setattr(dbscreen, "local_addresses", lambda: [])
 
 
 class TestWhatTheScreensBuild:
@@ -591,20 +553,6 @@ class TestTheForm:
         assert found == [("Answer on", 1, 1, "::1", 1, 22, 40, 40)]
 
 
-@pytest.fixture
-def screen(monkeypatch):
-    """Load one mode screen with a fake console, the way confconsole does"""
-    monkeypatch.delenv("KEEL_SPEC", raising=False)
-
-    def _load(relative, **console_kwargs):
-        loaded = plugin.Plugin(str(MODE_DIR / relative))
-        console = FakeConsole(**console_kwargs)
-        loaded.updateGlobals({"console": console})
-        return loaded, console
-
-    return _load
-
-
 class TestTheScreensThemselves:
     NAMES = [
         "01Standalone.py",
@@ -651,27 +599,16 @@ class TestTheScreensThemselves:
 
         assert "REPLACES the database it holds" in loaded.module.TEXT
 
-    @pytest.mark.parametrize(
-        "name,role",
-        [
-            ("01Standalone.py", "standalone"),
-            ("Cloud/01Primary.py", "primary"),
-            ("Cloud/02Replica.py", "replica"),
-        ],
-    )
-    def test_each_screen_applies_its_own_role(
-        self, screen, spec, keel, name, role
+    def test_the_standalone_screen_applies_its_own_role(
+        self, screen, spec, keel
     ):
-        answers = ["::1", PREFIX, SECRET, "3306"]
-        loaded, console = screen(
-            name, forms=[("ok", answers)],
-        )
+        loaded, _ = screen("01Standalone.py", forms=[("ok", ["::1"])])
 
         loaded.module.run()
 
         assert yaml.safe_load(spec.read_text())["database"]["server"][
             "role"
-        ] == role
+        ] == "standalone"
 
     @pytest.mark.parametrize("name", NAMES[:3])
     def test_a_cancelled_screen_changes_nothing(
