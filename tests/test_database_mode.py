@@ -615,12 +615,14 @@ class TestTheScreensThemselves:
 
         assert keelcli.THIS_NODE in loaded.module.TEXT
 
-    def test_the_primary_screen_prefers_a_prefix_and_warns_about_a_name(
+    def test_the_primary_screen_asks_for_addresses_and_warns_about_a_name(
         self, screen
     ):
         loaded, _ = screen("Cloud/01Primary.py")
 
-        assert "prefix is the form to prefer" in loaded.module.TEXT
+        assert "each replica's address" in loaded.module.TEXT
+        assert "every overlay peer" in loaded.module.TEXT
+        assert "prefer" not in loaded.module.TEXT
         assert "fragile" in loaded.module.TEXT
 
     def test_the_replica_screen_says_the_local_database_is_replaced(

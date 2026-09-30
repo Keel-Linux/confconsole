@@ -129,6 +129,28 @@ def peers(wireguard: dict) -> list:
     return [peer for peer in found if isinstance(peer, dict)]
 
 
+def peer_addresses(document: dict) -> list[str]:
+    """The overlay address of every declared peer, one host each
+
+    What a primary's 'Allow replication from' offers: each replica by its
+    address, compressed the way MariaDB compares it. A peer's routed
+    range is not one replica, and keel refuses an IPv6 prefix MariaDB
+    cannot hold, fd3d:80b2:d0d7::/64 among them, so only a /128 or a /32
+    counts.
+    """
+    found = []
+    for peer in peers(overlay_of(document)):
+        routed = peer.get("allowed_ips")
+        for one in routed if isinstance(routed, list) else []:
+            try:
+                network = ipaddress.ip_network(str(one), strict=False)
+            except ValueError:
+                continue
+            if network.num_addresses == 1:
+                found.append(str(network.network_address))
+    return found
+
+
 def with_peer(wireguard: dict, peer: dict) -> dict:
     """The peer added, or put in place of the one with the same key"""
     kept = [one for one in peers(wireguard)

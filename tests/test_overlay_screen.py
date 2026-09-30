@@ -146,6 +146,34 @@ class TestBuild:
             (PEER_KEY, "fd00:6b65:1::2/128 at [2001:db8::20]:51820")]
         assert wgcli.peer_line({}) == "- at reaches this node itself"
 
+    def test_the_peers_addresses_are_what_a_primary_authorizes(self):
+        document = wgcli.with_overlay({}, {
+            "address": "fd00:6b65:1::1/64",
+            "peers": [
+                {"public_key": PEER_KEY,
+                 "allowed_ips": ["fd00:6b65:1::2/128", "10.9.0.2/32"]},
+                {"public_key": OTHER_KEY,
+                 "allowed_ips": ["FD00:6B65:1:0:0:0:0:3/128"]},
+                "not a peer",
+            ],
+        })
+
+        assert wgcli.peer_addresses(document) == [
+            "fd00:6b65:1::2", "10.9.0.2", "fd00:6b65:1::3"]
+
+    def test_a_routed_range_or_a_typo_is_not_a_replica(self):
+        # A peer can route a whole prefix behind it; that range is not
+        # one replica's address, and MariaDB may not hold it (keel 0.11.1
+        # refuses an IPv6 prefix whose zero groups the text compresses).
+        document = wgcli.with_overlay({}, {"peers": [
+            {"public_key": PEER_KEY,
+             "allowed_ips": ["fd00:6b65:2::/64", "nonsense", 7]},
+            {"public_key": OTHER_KEY, "allowed_ips": "fd00:6b65:1::3/128"},
+        ]})
+
+        assert wgcli.peer_addresses(document) == []
+        assert wgcli.peer_addresses({}) == []
+
 
 class TestTexts:
     def test_the_first_screen(self):

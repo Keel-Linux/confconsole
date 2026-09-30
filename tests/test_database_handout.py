@@ -27,6 +27,8 @@ NODE4 = "192.0.2.10"
 TEMPORARY6 = "2001:db8:1::beef"
 PUBLIC6 = "2804:710:d0:5::10"
 ULA6 = "fd00:218:88::10"
+PEER6 = "fd3d:80b2:d0d7::2"
+OTHER6 = "fd3d:80b2:d0d7::3"
 REFUSAL = (
     "database.server.replication.primary: refused: becoming a replica"
     " replaces the local database with a copy of the primary\n"
@@ -143,19 +145,61 @@ class TestWhatThePrimaryHandsOut:
         assert text.startswith("THIS NODE IS NOT READY: keel apply: exit 16")
         assert "  pw" in text
 
-    def test_the_origin_offered_is_the_public_64(self):
-        found = keelcli.suggested_origin("", [NODE4, ULA6, PUBLIC6])
+    def test_the_origins_offered_are_the_overlay_peers(self):
+        found = keelcli.suggested_origin("", [PEER6, OTHER6])
 
-        assert found == "2804:710:d0:5::/64"
-
-    def test_a_unique_local_64_when_there_is_nothing_public(self):
-        assert keelcli.suggested_origin("", [ULA6]) == "fd00:218:88::/64"
+        assert found == f"{PEER6}, {OTHER6}"
 
     def test_origins_already_declared_are_kept(self):
-        assert keelcli.suggested_origin(PREFIX, [PUBLIC6]) == PREFIX
+        assert keelcli.suggested_origin(PREFIX, [PEER6]) == PREFIX
 
-    def test_no_ipv6_address_offers_nothing(self):
-        assert keelcli.suggested_origin("", [NODE4, "::1"]) == ""
+    def test_no_peer_offers_nothing_and_never_a_prefix(self):
+        # The /64 of this node was offered until keel 0.11.1 refused it:
+        # MariaDB matches the text of the replica's address, and in
+        # fd3d:80b2:d0d7::/64 the replica fd3d:80b2:d0d7::2 is not written
+        # fd3d:80b2:d0d7:0:..., so the pattern for that /64 refused it.
+        assert keelcli.suggested_origin("", []) == ""
+
+    @pytest.mark.parametrize(
+        "origin",
+        ["fd3d:80b2:d0d7::/64", "2001:db8::/48", "2001:0:0:5::/64",
+         "2001:db8::/56", "192.0.2.0/25", "2001::5:%",
+         "fd3d:80b2:d0d7:0:%"],
+    )
+    def test_an_origin_keel_refuses_on_mariadb_is_found(self, origin):
+        # keel.spec.origins.mariadb_problem, reproduced like the account.
+        assert keelcli.refused_origins(origin, "mariadb") == [origin]
+
+    @pytest.mark.parametrize(
+        "origin",
+        ["2804:710:d0:5::/64", "2001:db8:0:5::/64", "192.0.2.0/24",
+         PEER6, "2001:db8:1:%", "replica.example.org", "::/0x",
+         "2001:db8::20/128"],
+    )
+    def test_an_origin_keel_grants_is_not(self, origin):
+        assert keelcli.refused_origins(origin, "mariadb") == []
+
+    def test_another_engine_takes_any_prefix(self):
+        assert keelcli.refused_origins(
+            "fd3d:80b2:d0d7::/64", "postgresql"
+        ) == []
+
+    def test_a_refused_origin_is_replaced_by_the_peers(self):
+        found = keelcli.suggested_origin(
+            f"fd3d:80b2:d0d7::/64, {PEER6}", [PEER6, OTHER6],
+            ["fd3d:80b2:d0d7::/64"],
+        )
+
+        assert found == f"{PEER6}, {OTHER6}"
+
+    def test_the_warning_names_the_origin_and_the_peers(self):
+        text = keelcli.refused_text(["fd3d:80b2:d0d7::/64"], [PEER6])
+
+        assert "fd3d:80b2:d0d7::/64" in text
+        assert "overlay peers" in text
+        assert "no overlay peer" in keelcli.refused_text(
+            ["fd3d:80b2:d0d7::/64"], []
+        )
 
     def test_a_pasted_bracketed_address_is_stored_bare(self):
         found = keelcli.replica_server(
@@ -419,7 +463,55 @@ class TestThePrimaryScreen:
         listen = console.calls[0][2][0][3]
         assert listen.startswith(f"{NODE6}, {NODE4}")
 
-    def test_the_form_offers_this_nodes_prefix_public_before_ula(
+    def test_the_form_offers_the_overlay_peers_addresses(
+        self, screen, spec, keel, machine
+    ):
+        machine[:] = [ULA6, PUBLIC6, NODE4]
+        spec.write_text(yaml.safe_dump({**BASE, "network": {"overlay": {
+            "wireguard": {"address": "fd3d:80b2:d0d7::1/64", "peers": [
+                {"public_key": "k" * 43 + "=",
+                 "allowed_ips": [f"{PEER6}/128"]},
+                {"public_key": "o" * 43 + "=",
+                 "allowed_ips": [f"{OTHER6}/128"]},
+            ]},
+        }}}))
+        loaded, console = screen(
+            "Cloud/01Primary.py", forms=[("cancel", [])]
+        )
+
+        loaded.module.run()
+
+        assert console.calls[0][2][1][3] == f"{PEER6}, {OTHER6}"
+
+    def test_a_declared_prefix_keel_refuses_is_flagged_and_replaced(
+        self, screen, spec, keel
+    ):
+        spec.write_text(yaml.safe_dump({
+            **BASE,
+            "database": {"server": {
+                "engine": "mariadb", "role": "primary",
+                "replication": {"allowed_from": ["fd3d:80b2:d0d7::/64"]},
+            }},
+            "network": {"overlay": {"wireguard": {
+                "address": "fd3d:80b2:d0d7::1/64", "peers": [
+                    {"public_key": "k" * 43 + "=",
+                     "allowed_ips": [f"{PEER6}/128"]},
+                ],
+            }}},
+        }))
+        loaded, console = screen(
+            "Cloud/01Primary.py", forms=[("cancel", [])]
+        )
+
+        loaded.module.run()
+
+        _, text, fields, _ = console.calls[0]
+        assert fields[1][3] == PEER6
+        assert text.startswith(keelcli.refused_text(
+            ["fd3d:80b2:d0d7::/64"], [PEER6]
+        ))
+
+    def test_the_form_offers_no_prefix_of_this_node(
         self, screen, spec, keel, machine
     ):
         machine[:] = [ULA6, PUBLIC6, NODE4]
@@ -429,7 +521,7 @@ class TestThePrimaryScreen:
 
         loaded.module.run()
 
-        assert console.calls[0][2][1][3] == "2804:710:d0:5::/64"
+        assert console.calls[0][2][1][3] == ""
 
     def test_it_generates_applies_and_hands_out_once(
         self, screen, spec, keel, secret, monkeypatch
