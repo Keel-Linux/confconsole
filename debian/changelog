@@ -35,7 +35,11 @@ confconsole (2.2.3+keel8) trixie; urgency=low
     buttons.
   * The first boot's boxes are no taller than the terminal; confconsole
     draws 25 rows, and an LXC console is often 24.
-  * Keel Cloud API key: optional, empty means standalone. The key goes
+  * The role menu opens on the role the description holds, Standalone
+    when it holds none (confconsole's Console.menu takes default_item).
+  * Keel Cloud API key: optional, empty means standalone and Cancel
+    changes nothing. A node that holds a key is asked Keep, Replace or
+    Remove, and only Remove clears it. The key goes
     to /etc/keel/secrets/cloud_api_key (root, 0600) and the description
     references it as hub.api_key; empty is hub.api_key: skip. The screen
     says in one sentence that the key takes effect once the service
@@ -44,7 +48,7 @@ confconsole (2.2.3+keel8) trixie; urgency=low
   * Not asked when the description declares database.server.role or
     hub.api_key, or HUB_APIKEY is preseeded (SKIP, or a key, which is
     stored without a screen), when there is no terminal, or without
-    keel; keel-init asks again. The screens draw on the terminal of
+    keel; keel-init asks again and ignores what was preseeded. The screens draw on the terminal of
     standard input when standard output is not one.
   * Usage screen: no TKLBAM status line and no "TurnKey Backups and
     Cloud Deployment https://hub.turnkeylinux.org" footer.

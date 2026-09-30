@@ -15,8 +15,10 @@ confconsole loads them, in the order the set needs them. A step that
 needs the other node can be left with Later, and the screen says which
 confconsole entry finishes it; the role is written to the description
 only by the Database mode screen, once keel has validated it, so a step
-left half way leaves a node that is still standalone, never one that
-claims a role it does not hold.
+left before that leaves a node that is still standalone. Once written,
+the description holds the role chosen (decision 0020), even when the
+apply that follows it did not finish: the screen shows keel's verdict,
+and running it again converges it.
 
 Each overlay change comes up under the confirmation window of decision
 0018, and the Overlay network screen offers to confirm it from here.
@@ -140,8 +142,10 @@ REPLICA_READY = (
     "     overlay address: {address}\n"
     "     endpoint: blank (this node reaches the primary)\n"
     "  2. " + MODE_WHERE[PRIMARY] + ": add {address} to 'Allow"
-    " replication from'. It shows the replication password the next"
-    " screen asks for.\n\n"
+    " replication from'.\n\n"
+    "The next screen asks for the replication password: use the password"
+    " shown when it was generated on the primary, or read it from"
+    " {secret} there.\n\n"
     "Then, on the next screen, 'Replicate from' is the primary's overlay"
     " address: {peers}.\n\n"
     "Go on now? Answer No to finish later with " + WHERE
@@ -188,6 +192,17 @@ CLOUD_TEXT = (
 )
 CLOUD_SAVED = "Saved: hub.api_key references {path} (root, mode 0600)."
 CLOUD_SKIPPED = "No Keel Cloud key: this node runs standalone."
+KEEP = "Keep"
+REMOVE = "Remove"
+KEY_CHOICES = [
+    (KEEP, "keep the key this node has"),
+    ("Replace", "type another key"),
+    (REMOVE, "no key: this node runs standalone"),
+]
+CLOUD_HELD = (
+    "This node has a Keel Cloud API key: hub.api_key references {path}."
+    "\n\nKeep it, replace it, or remove it."
+)
 
 NO_TERMINAL = {
     ROLE: "no terminal to ask on: this node stays standalone; choose its"
@@ -217,8 +232,10 @@ def main(argv: list[str], environ=None) -> int:
     if reason:
         say(step, reason)
         return 0
-    preseeded = environ.get(PRESEED, "")
-    if step == CLOUD and preseeded:
+    # keel-init is an explicit run: it asks, whatever was preseeded; and
+    # SKIP is an answer, never a key to store
+    preseeded = "" if environ.get(EXPLICIT_RUN) else environ.get(PRESEED, "")
+    if step == CLOUD and preseeded and preseeded.upper() != "SKIP":
         problem = save_key(path, document, preseeded)
         say(step, problem or f"the preseeded {PRESEED} was stored in"
             f" {DEFAULT_CLOUD_KEY}")
@@ -306,8 +323,10 @@ def choose_role(console, path: str, document: dict) -> None:
     text = ROLE_TEXT
     if server.get("role"):
         text += f"\n\nThe description says: {server['role']}."
+    current = {role: label for label, role in ROLE_OF.items()}.get(
+        server.get("role"), "Standalone")
     code, choice = console.menu(ROLE_TITLE, text, ROLE_CHOICES,
-                                no_cancel=True)
+                                no_cancel=True, default_item=current)
     if code != OK:
         return
     ROLES[ROLE_OF[choice]](console, path, document, server, engine)
@@ -368,7 +387,8 @@ def replica_ready_text(key: str, document: dict) -> str:
     address = str(wireguard.get("address") or "").split("/")[0]
     peers = ", ".join(wgcli.peer_addresses(document))
     return REPLICA_READY.format(where=WHERE.rstrip("> "), key=key,
-                                address=address, peers=peers)
+                                address=address, peers=peers,
+                                secret=keelcli.DEFAULT_SECRET)
 
 
 def overlay(console, path: str, role: str) -> str | None:
@@ -455,11 +475,32 @@ def cloud_screen(console) -> None:
 
 
 def ask_key(console, path: str, document: dict) -> None:
-    """Ask for the key; empty, or Cancel, means standalone"""
+    """Ask for the key; empty means standalone, Cancel changes nothing
+
+    A node that holds a key keeps it unless the operator chooses Remove:
+    Cancel, Keep, or an empty field after Replace leave it as it is, so
+    keel-init or Instance > Keel Cloud never throw a key away by
+    accident.
+    """
+    held = (document.get("hub") or {}).get("api_key")
+    if isinstance(held, dict):
+        code, choice = console.menu(
+            CLOUD_TITLE, CLOUD_HELD.format(path=held.get("file")),
+            KEY_CHOICES)
+        if code != OK or choice == KEEP:
+            return
+        if choice == REMOVE:
+            show_saved(console, save_key(path, document, ""), "")
+            return
     typed = dbscreen.passwordbox(
         console, CLOUD_TITLE, CLOUD_TEXT.format(path=DEFAULT_CLOUD_KEY))
-    key = typed or ""
-    problem = save_key(path, document, key)
+    if typed is None or (not typed and isinstance(held, dict)):
+        return
+    show_saved(console, save_key(path, document, typed), typed)
+
+
+def show_saved(console, problem: str, key: str) -> None:
+    """What saving the key did"""
     if problem:
         console.msgbox(CLOUD_TITLE, problem, autosize=True)
     elif key:

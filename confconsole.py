@@ -320,7 +320,11 @@ class Console:
         text: str,
         choices: list[tuple[str, str]],
         no_cancel: bool = False,
+        default_item: str | None = None,
     ) -> tuple[str, str]:
+        # default_item: the choice highlighted when the menu opens, such
+        # as the role a node already has; dialog's first one otherwise
+        extra = {} if default_item is None else {"default_item": default_item}
         v = self._wrapper(
             "menu",
             text,
@@ -330,6 +334,7 @@ class Console:
             title=title,
             choices=choices,
             no_cancel=no_cancel,
+            **extra,
         )
         assert isinstance(v, tuple)
         return v

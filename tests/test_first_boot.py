@@ -193,6 +193,21 @@ class TestMain:
         assert keel["calls"] == []
         assert "HUB_APIKEY is SKIP" in capsys.readouterr().err
 
+    @pytest.mark.parametrize("preseeded", ["SKIP", "skip", "KEY123"])
+    def test_keel_init_ignores_the_preseed_and_asks(
+        self, keel, spec, steps, key_file, preseeded
+    ):
+        # A preseeded SKIP was stored as the literal key "SKIP" under
+        # keel-init (review of confconsole#15).
+        spec({"version": 1})
+
+        keelfirstboot.main(["cloud"], {"_TURNKEY_INIT": "1",
+                                       "HUB_APIKEY": preseeded})
+
+        assert [one[0] for one in steps] == ["cloud"]
+        assert not key_file.exists()
+        assert keel["calls"] == []
+
     def test_a_preseeded_key_is_stored_without_a_screen(
         self, keel, spec, steps, key_file, monkeypatch, capsys
     ):
@@ -274,6 +289,25 @@ class TestTheTerminal:
         assert keelfirstboot.terminal_path(found["read"], "/dev/tty") == (
             "/dev/tty")
 
+    def test_confconsoles_menu_passes_a_default_item_to_dialog(self):
+        import confconsole
+
+        seen = {}
+
+        class Dialog:
+            def menu(self, text, *args, **kwargs):
+                seen.update(kwargs)
+                return "ok", "Primary"
+
+        console = object.__new__(confconsole.Console)
+        console.console, console.height, console.width = Dialog(), 22, 65
+
+        console.menu("t", "x", [("Primary", "p")], default_item="Primary")
+        assert seen["default_item"] == "Primary"
+        seen.clear()
+        console.menu("t", "x", [("Primary", "p")])
+        assert "default_item" not in seen
+
     @pytest.mark.parametrize("rows, height", [(24, 22), (25, 23), (50, 25)])
     def test_the_console_fits_the_terminal_it_draws_on(
         self, monkeypatch, rows, height
@@ -323,7 +357,18 @@ class TestTheRole:
         keelfirstboot.choose_role(console, str(spec.path), read(spec.path))
 
         assert "The description says: primary" in console.calls[0][2]
+        assert console.menu_kwargs["default_item"] == "Primary"
         assert flows[0][0] == "replica"
+
+    def test_a_node_with_no_role_yet_defaults_to_standalone(
+        self, keel, spec, flows
+    ):
+        spec({"version": 1, "database": {"server": {"engine": "mariadb"}}})
+        console = FakeConsole(menus=[("ok", "Standalone")])
+
+        keelfirstboot.choose_role(console, str(spec.path), read(spec.path))
+
+        assert console.menu_kwargs["default_item"] == "Standalone"
 
     def test_the_engine_comes_from_the_machine_when_undeclared(
         self, keel, spec, flows, monkeypatch
@@ -486,6 +531,10 @@ class TestPrimaryAndReplica:
         assert THIS_KEY in question
         assert "fd00:6b65:1::2" in question
         assert "fd00:6b65:1::1" in question
+        # the Primary screen shows the password once, when it generates
+        # it; after that only the file on the primary holds it
+        assert "shown when it was generated" in question
+        assert dbscreen.secret_path({}) in question
         assert steps["screens"] == ["replica"]
         assert steps["finished"] == ["replica"]
 
@@ -671,16 +720,71 @@ class TestTheCloudKey:
         assert dbscreen.passwordbox(Recorder(), "t", "text") == "x"
         assert asked == [(0, 0)]
 
-    @pytest.mark.parametrize("answer", [("ok", ""), ("cancel", "")])
-    def test_empty_means_standalone(self, keel, spec, key_file, answer):
+    def test_empty_means_standalone(self, keel, spec, key_file):
         spec({"version": 1})
-        console = FakeConsole(passwords=[answer])
+        console = FakeConsole(passwords=[("ok", "")])
 
         keelfirstboot.ask_key(console, str(spec.path), read(spec.path))
 
         assert read(spec.path)["hub"] == {"api_key": "skip"}
         assert not key_file.exists()
         assert "standalone" in boxes(console)[0][2]
+
+    def test_cancel_changes_nothing(self, keel, spec, key_file):
+        spec({"version": 1})
+        console = FakeConsole(passwords=[("cancel", "")])
+
+        keelfirstboot.ask_key(console, str(spec.path), read(spec.path))
+
+        assert read(spec.path) == {"version": 1}
+        assert keel["calls"] == []
+        assert boxes(console) == []
+
+    @pytest.fixture
+    def held(self, spec, key_file):
+        """A node with a key this screen wrote"""
+        key_file.parent.mkdir()
+        key_file.write_text("OLD\n")
+        return spec({"version": 1, "hub": {"api_key": {
+            "file": str(key_file)}}})
+
+    @pytest.mark.parametrize("menu", [("ok", "Keep"), ("cancel", "")])
+    def test_a_held_key_is_kept_unless_asked_otherwise(
+        self, keel, held, key_file, menu
+    ):
+        # Cancel or an empty field threw an existing key away under
+        # keel-init or Instance > Keel Cloud (review of confconsole#15).
+        console = FakeConsole(menus=[menu])
+
+        keelfirstboot.ask_key(console, str(held), read(held))
+
+        _, _, text, choices = console.calls[0]
+        assert [tag for tag, _ in choices] == ["Keep", "Replace", "Remove"]
+        assert str(key_file) in text
+        assert key_file.read_text() == "OLD\n"
+        assert read(held)["hub"] == {"api_key": {"file": str(key_file)}}
+        assert keel["calls"] == []
+
+    @pytest.mark.parametrize("answer", [("ok", ""), ("cancel", "")])
+    def test_replace_with_nothing_keeps_the_key(
+        self, keel, held, key_file, answer
+    ):
+        console = FakeConsole(menus=[("ok", "Replace")], passwords=[answer])
+
+        keelfirstboot.ask_key(console, str(held), read(held))
+
+        assert key_file.read_text() == "OLD\n"
+        assert read(held)["hub"] == {"api_key": {"file": str(key_file)}}
+        assert keel["calls"] == []
+
+    def test_replace_writes_the_new_key(self, keel, held, key_file):
+        console = FakeConsole(menus=[("ok", "Replace")],
+                              passwords=[("ok", "NEW")])
+
+        keelfirstboot.ask_key(console, str(held), read(held))
+
+        assert key_file.read_text() == "NEW\n"
+        assert "Saved" in boxes(console)[0][2]
 
     def test_a_key_is_a_secret_file_the_description_references(
         self, keel, spec, key_file
@@ -696,18 +800,14 @@ class TestTheCloudKey:
         assert "KEY123" not in spec.path.read_text()
         assert "KEY123" not in boxes(console)[0][2]
 
-    def test_clearing_the_key_removes_the_file_this_screen_wrote(
-        self, keel, spec, key_file
-    ):
-        key_file.parent.mkdir()
-        key_file.write_text("OLD\n")
-        spec({"version": 1, "hub": {"api_key": {"file": str(key_file)}}})
-        console = FakeConsole(passwords=[("ok", "")])
+    def test_remove_clears_the_key_and_its_file(self, keel, held, key_file):
+        console = FakeConsole(menus=[("ok", "Remove")])
 
-        keelfirstboot.ask_key(console, str(spec.path), read(spec.path))
+        keelfirstboot.ask_key(console, str(held), read(held))
 
-        assert read(spec.path)["hub"] == {"api_key": "skip"}
+        assert read(held)["hub"] == {"api_key": "skip"}
         assert not key_file.exists()
+        assert "standalone" in boxes(console)[0][2]
 
     def test_a_file_of_the_operators_own_is_left_where_it_is(
         self, keel, spec, key_file, tmp_path
