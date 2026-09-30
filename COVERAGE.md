@@ -235,6 +235,28 @@ the rows each terminal admits and the indent the screen gives, is derived
 from the size the fixture itself measures. Redrawing the art changes no
 test.
 
+## Measured on 2026-09-30 with the overlay screen
+
+| File | Tests | Stmts | Branches | Cover |
+|------|-------|-------|----------|-------|
+| wgcli.py (new: what the overlay screen builds and says, without a dialog) | in tests/test_overlay_screen.py: the overlay read out of a description and written back as a copy, the address and port, the other node's address as a one-host prefix, a peer with blank fields left out, a peer replaced by key, removed, listed, and every screen text including the confirmation instructions only when a change waits | 86 | 12 | 100 percent, 0 missed, 0 partial |
+| wgscreen.py (new: the dialog flow of the overlay screen) | in tests/test_overlay_screen.py: the public key from keel, the choices offered with and without an address and peers, keel's suggested first address, a peer added then confirmed from the console or left to a new session, a refused apply, an invalid peer leaving the description as it was, a cancelled form, a removal that asks first, and keel missing at each step | 86 | 34 | 100 percent, 0 missed, 0 partial |
+| dbscreen.py | the stage, validate, commit sequence moved into `commit`, which the overlay screen shares; its tests unchanged | 91 | 34 | 100 percent, 0 missed, 0 partial |
+| plugins.d/Instance | Overlay_network.py joins the entries every loader test runs | 4 more | 0 more | 100 percent, 0 missed, 0 partial |
+
+Total 455 tests, 100 percent over the measured package, which is now
+`ifutil,keelbanner,keelcli,dbscreen,wgcli,wgscreen,plugins.d/Instance`.
+Threshold in the caller: 100, unchanged. `tests/conftest.py`'s
+`FakeConsole.menu` answers from a `menus` queue when a test scripts one,
+and fails as before when none is scripted.
+
+Two tests hand the descriptions the screen builds to a real `keel spec
+validate`, so what the screen writes is judged by keel's own rules and
+not by a mock of them: a valid address and peer pass, and a bad port,
+key, endpoint, address and keepalive are each named by keel. They run
+when a keel 0.11 or later is at hand (on `PATH`, or named by `KEEL`),
+and skip otherwise, since keel is not a dependency of this package.
+
 ## Plan to reach 90 percent per file
 
 Priority order (size: small under 30 lines of test, medium under 150,

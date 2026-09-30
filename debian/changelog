@@ -1,3 +1,23 @@
+confconsole (2.2.3+keel5) trixie; urgency=low
+
+  * Instance menu: add Overlay network, the console half of step 2 of
+    handbook decision 0020. It shows this node's WireGuard public key
+    (made by keel network wireguard key on first use; the private key
+    never leaves keel), its overlay address and port, and its peers, and
+    adds or removes a peer: the other node's public key, overlay address
+    and endpoint. It configures THIS node only.
+  * The first address is keel's suggestion, a random unique local /64.
+  * Changes are staged, validated by keel, committed and applied with keel
+    spec apply --system-only, which brings the overlay up under the
+    confirmation window of decision 0018. The screen says the change
+    reverts by itself unless confirmed from a new session, over the
+    overlay or the uplink, and offers to confirm from the console, which
+    keel accepts only from a real console.
+  * dbscreen: the stage, validate, commit sequence is a function of its
+    own, shared by the database and overlay screens.
+
+ -- Keel Linux maintainers <admin@keellinux.org>  Wed, 30 Sep 2026 05:55:30 +0000
+
 confconsole (2.2.3+keel4) trixie; urgency=low
 
   * Usage screen: centre the mark above it. It was prepended as it was read,

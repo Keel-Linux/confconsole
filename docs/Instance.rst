@@ -64,6 +64,54 @@ Export spec
   be inferred, so the file needs editing before it can be applied; the
   report names the field and why.
 
+Overlay network (WireGuard)
+---------------------------
+
+The WireGuard overlay the nodes of a replicated appliance share (handbook
+decision 0020), ``network.overlay.wireguard`` in the instance description
+(``docs/spec.md`` of keel). The screen configures THIS node's side of it
+only; each node adds the others from its own console.
+
+It opens on this node's public key, overlay address, listen port and
+peers. The key comes from ``keel network wireguard key``, which makes the
+key pair the first time, on this machine, and prints only the public key.
+Then:
+
+Address
+  This node's overlay address and port. The first time, the field holds
+  what ``keel network wireguard suggest-address`` prints: a random unique
+  local address (``fd00::/8``), ``::1`` on its /64. The other nodes take
+  ``::2``, ``::3`` on the same /64. The other entries appear once there
+  is an address.
+
+Add peer
+  Another node, as its own screen shows it: its public key, its overlay
+  address (routed as one host, ``/128``), its endpoint (``host:port``, an
+  IPv6 address in brackets, ``[2001:db8::20]:51820``; blank when that node
+  reaches this one) and a keepalive in seconds (25 by default, blank for
+  none). A peer with a key already there replaces it.
+
+Remove peer
+  Pick the peer by its key; the screen asks before removing it.
+
+Every change is written the way the database screens write theirs: staged
+beside the description, checked by ``keel spec validate --no-secret-files``,
+committed only when valid (otherwise the description is left exactly as it
+was and keel's errors are shown), then applied with ``keel spec apply
+--system-only``. keel brings the overlay up under the confirmation window
+of decision 0018, and the screen says what that means: the change reverts
+by itself when the window ends (120 seconds) unless it is confirmed with
+``keel network confirm`` from a NEW session, over the overlay from the
+other node (which also tests the overlay) or over this node's usual
+address. The screen then offers to confirm from here: keel accepts that
+from the machine's own console, and refuses it from an SSH session opened
+before the change, in which case the change reverts unless a new session
+confirms it.
+
+Headless equivalent: edit ``network.overlay.wireguard`` in the
+description, ``keel spec apply --system-only``, then ``keel network
+confirm`` from a new session.
+
 When keel is not installed
 --------------------------
 
@@ -84,3 +132,11 @@ document into the table; ``view_text``, ``apply_text``, ``drift_text`` and
 manager like every other entry. ``tests/test_keelcli.py`` covers the
 client with ``subprocess.run`` replaced, ``tests/test_instance_menu.py``
 loads each entry through ``plugin.Plugin`` with a scripted console.
+
+The overlay screen is ``wgcli.py`` (what it builds and says, pure) and
+``wgscreen.py`` (the dialog flow), beside ``keelcli.py`` for the same
+reason; it shares ``dbscreen.commit`` with the database screens.
+``tests/test_overlay_screen.py`` covers both with ``keelcli.call``
+replaced, and hands the descriptions the screen builds to a real ``keel
+spec validate`` when a keel 0.11 or later is on ``PATH`` or named by
+``KEEL``.

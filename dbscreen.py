@@ -131,12 +131,27 @@ def apply_mode(console, title: str, server: dict, may_destroy: bool = False):
     if problem:
         console.msgbox(title, problem)
         return
-    staged, problem = keelcli.stage_spec(
-        keelcli.with_server(document, server), path
+    if not commit(console, title, path, keelcli.with_server(document, server)):
+        return
+    result = converge(console, title, path, may_destroy)
+    if result is None:
+        return
+    console.msgbox(
+        title, keelcli.mode_text(server, path, result), autosize=True
     )
+
+
+def commit(console, title: str, path: str, document: dict) -> bool:
+    """Stage, validate, commit; True once the description is in place
+
+    Shared with the overlay screen (wgscreen.py): what the operator typed
+    becomes the description this machine boots from only once `keel spec
+    validate` has accepted it, and every failure is said on the screen.
+    """
+    staged, problem = keelcli.stage_spec(document, path)
     if problem:
         console.msgbox(title, problem)
-        return
+        return False
     result = call(console, title, [
         "spec", "validate", "--no-secret-files", "--spec", staged
     ])
@@ -146,17 +161,12 @@ def apply_mode(console, title: str, server: dict, may_destroy: bool = False):
             console.msgbox(
                 title, keelcli.invalid_text(path, result), autosize=True
             )
-        return
+        return False
     problem = keelcli.commit_spec(staged, path)
     if problem:
         console.msgbox(title, problem)
-        return
-    result = converge(console, title, path, may_destroy)
-    if result is None:
-        return
-    console.msgbox(
-        title, keelcli.mode_text(server, path, result), autosize=True
-    )
+        return False
+    return True
 
 
 def converge(console, title: str, path: str, may_destroy: bool):
