@@ -37,6 +37,9 @@ UNDER_WINDOW = "reverts in"
 DONE = ": done"
 # what keel says when it refuses a change because another one waits
 WAITING = "waiting for its confirmation"
+# what keel says when a change failed and so did putting the old file
+# back: the marker and the timer stay, and the change still reverts
+STILL_ARMED = "the revert timer will try again"
 NO_ADDRESS = "(none yet: choose Address first)"
 THIS_NODE = (
     "This screen configures THIS node's side of the overlay only. On the"
@@ -175,12 +178,15 @@ def is_pending(result: keelcli.Result) -> bool:
     """Whether a network change waits for its confirmation after apply
 
     One this run brought up (its line carried out, whatever failed after
-    it), the overlay's or the uplink's, or one an earlier run left, which
-    keel names when it refuses another. A change that failed was rolled
-    back, and one only planned was never made.
+    it), the overlay's or the uplink's; one that failed and could not be
+    rolled back either, which keel leaves armed; or one an earlier run
+    left, which keel names when it refuses another. A change that failed
+    and was rolled back waits for nothing, and one only planned was never
+    made.
     """
     return any(
-        WAITING in line or (UNDER_WINDOW in line and line.endswith(DONE))
+        WAITING in line or STILL_ARMED in line
+        or (UNDER_WINDOW in line and line.endswith(DONE))
         for line in result.output.splitlines()
     )
 

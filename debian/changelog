@@ -16,8 +16,11 @@ confconsole (2.2.3+keel6) trixie; urgency=low
     over the overlay or the uplink, and offers to confirm from the
     console, which keel accepts only from a real console.
   * It says how to confirm whenever a network change waits after apply:
-    one this run brought up, even when a later step failed, or one an
+    one this run brought up, even when a later step failed, one whose
+    rollback failed too and that keel's timer still reverts, or one an
     earlier run left, which keel names when it refuses another.
+  * Recommends: keel (>= 0.11.0), the first keel with --skip-uplink; an
+    older one stops the screen's apply with a usage error.
 
  -- Marcos Méndez <mendez.foto@gmail.com>  Wed, 30 Sep 2026 12:30:00 +0000
 

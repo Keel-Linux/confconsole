@@ -23,7 +23,7 @@ Recommends:
  authbind,
  dehydrated,
  kbd,
- keel,
+ keel (>= 0.11.0),
  python3-bottle,
  resolvconf,
 Suggests:

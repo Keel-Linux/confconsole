@@ -110,8 +110,10 @@ unless it is confirmed with ``keel network confirm`` from a NEW session,
 over the overlay from the other node (which also tests the overlay) or
 over this node's usual address. The screen says so whenever a network
 change waits after apply: one this run brought up, even if a later step
-failed, or one an earlier run left, which keel names when it refuses
-another. It then offers to confirm from here: keel accepts that from the
+failed; one that failed and could not be rolled back either, which keel
+leaves to its revert timer; or one an earlier run left, which keel names
+when it refuses another. It needs keel 0.11.0 or later, the first with
+``--skip-uplink``, which the package recommends. It then offers to confirm from here: keel accepts that from the
 machine's own console, and refuses it from an SSH session opened before
 the change, in which case the change reverts unless a new session
 confirms it.

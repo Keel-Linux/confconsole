@@ -210,6 +210,24 @@ class TestTexts:
         assert "no public key" in wgcli.command_text(
             "key", make_result(wgcli.KEY, 16))
 
+    def test_a_rollback_that_failed_too_still_waits(self):
+        """keel keeps the marker and the timer when it could not put the
+        previous file back, so the change still reverts by itself"""
+        stuck = APPLIED.replace(
+            ": done\n", ": failed: wg-quick exited 1; putting the previous"
+            " file back failed too (full); the revert timer will try"
+            " again\n")
+        result = make_result(wgcli.APPLY, 16, stuck)
+        assert wgcli.is_pending(result)
+        assert "REVERTS BY ITSELF" in wgcli.applied_text(result)
+
+    def test_the_package_asks_for_a_keel_with_skip_uplink(self):
+        """An older keel dies in argparse on --skip-uplink"""
+        control = (Path(__file__).resolve().parent.parent / "debian"
+                   / "control").read_text()
+        assert " keel (>= 0.11.0),\n" in control
+        assert FIRST_WITH_OVERLAY == (0, 11)
+
     def test_apply_moves_the_overlay_and_never_the_uplink(self):
         """The database screens pass --skip-network; this one must not,
         since bringing the overlay up is what it is for, but it passes
