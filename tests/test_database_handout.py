@@ -10,6 +10,7 @@ No dialog opens and no keel runs.
 """
 
 import os
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -58,6 +59,10 @@ def questions(console):
     return [one[1] for one in console.calls if one[0] == "yesno"]
 
 
+def textboxes(console):
+    return [one[2] for one in console.calls if one[0] == "textbox"]
+
+
 class TestTheAddressesAReplicaCanUse:
     def test_a_loopback_only_server_is_reachable_by_nobody(self):
         assert keelcli.reachable(["::1", "127.0.0.1"], [NODE6]) == []
@@ -103,14 +108,67 @@ class TestTheAddressesAReplicaCanUse:
 
 class TestWhatThePrimaryHandsOut:
     def test_it_names_the_address_the_account_and_the_file(self):
-        text = keelcli.handout_text("mariadb", [NODE6, NODE4], "/s/r")
+        text = keelcli.handout_text(
+            "mariadb", [NODE6, NODE4], "/s/r", origins=[PREFIX]
+        )
 
         assert text.index(NODE6) < text.index(NODE4)
-        assert f"[{NODE6}]:3306" in text
-        assert f"{NODE4}:3306" in text
+        assert f"Allowed to replicate: {PREFIX}" in text
         assert "Replication account: repl" in text
         assert "Password kept in: /s/r" in text
         assert "not shown here" in text
+        assert keelcli.NO_ORIGIN not in text
+
+    def test_the_address_to_paste_is_bare_and_brackets_only_an_example(
+        self
+    ):
+        text = keelcli.handout_text(
+            "mariadb", [NODE6], "/s/r", origins=[PREFIX]
+        )
+
+        assert f"\n    {NODE6}\n" in text
+        assert f"written [{NODE6}]:3306; type the bare address" in text
+
+    def test_no_origin_is_said_first_and_plainly(self):
+        text = keelcli.handout_text("mariadb", [NODE6], "/s/r", origins=[])
+
+        assert text.startswith(keelcli.NO_ORIGIN)
+
+    def test_a_failure_is_said_before_anything_else(self):
+        text = keelcli.handout_text(
+            "mariadb", [NODE6], "/s/r", "pw", origins=[PREFIX],
+            failure="keel apply: exit 16",
+        )
+
+        assert text.startswith("THIS NODE IS NOT READY: keel apply: exit 16")
+        assert "  pw" in text
+
+    def test_the_origin_offered_is_the_public_64(self):
+        found = keelcli.suggested_origin("", [NODE4, ULA6, PUBLIC6])
+
+        assert found == "2804:710:d0:5::/64"
+
+    def test_a_unique_local_64_when_there_is_nothing_public(self):
+        assert keelcli.suggested_origin("", [ULA6]) == "fd00:218:88::/64"
+
+    def test_origins_already_declared_are_kept(self):
+        assert keelcli.suggested_origin(PREFIX, [PUBLIC6]) == PREFIX
+
+    def test_no_ipv6_address_offers_nothing(self):
+        assert keelcli.suggested_origin("", [NODE4, "::1"]) == ""
+
+    def test_a_pasted_bracketed_address_is_stored_bare(self):
+        found = keelcli.replica_server(
+            "mariadb", "::1", f" [{NODE6}] ", "", "/s/r"
+        )
+
+        assert found["replication"]["primary"]["host"] == NODE6
+
+    def test_the_apply_leaves_the_network_and_the_certificate_alone(self):
+        assert "--skip-network" in keelcli.APPLY
+        assert "--defer-certificate" in keelcli.APPLY
+        assert "--system-only" in keelcli.APPLY
+        assert "network" in keelcli.THIS_NODE
 
     def test_a_generated_password_is_shown_once(self):
         text = keelcli.handout_text("mariadb", [NODE6], "/s/r", "s3cret")
@@ -361,6 +419,18 @@ class TestThePrimaryScreen:
         listen = console.calls[0][2][0][3]
         assert listen.startswith(f"{NODE6}, {NODE4}")
 
+    def test_the_form_offers_this_nodes_prefix_public_before_ula(
+        self, screen, spec, keel, machine
+    ):
+        machine[:] = [ULA6, PUBLIC6, NODE4]
+        loaded, console = screen(
+            "Cloud/01Primary.py", forms=[("cancel", [])]
+        )
+
+        loaded.module.run()
+
+        assert console.calls[0][2][1][3] == "2804:710:d0:5::/64"
+
     def test_it_generates_applies_and_hands_out_once(
         self, screen, spec, keel, secret, monkeypatch
     ):
@@ -375,11 +445,60 @@ class TestThePrimaryScreen:
         assert server["role"] == "primary"
         assert server["replication"]["secret"] == {"file": str(secret)}
         assert secret.read_text() == "g3n\n"
-        handout = messages(console)[-1]
+        handout = textboxes(console)[-1]
         assert handout.index(NODE6) < handout.index("account: repl")
         assert "g3n" in handout
         assert str(secret) in handout
-        assert all("g3n" not in call for call in keel["calls"][0])
+        assert "NOT READY" not in handout
+        assert keelcli.NO_ORIGIN not in handout
+        for call in keel["calls"]:
+            assert all("g3n" not in one for one in call)
+        assert all("g3n" not in text for text in messages(console))
+
+    def test_the_handout_file_is_root_only_and_gone_afterwards(
+        self, screen, spec, keel, secret
+    ):
+        loaded, console = screen(
+            "Cloud/01Primary.py", forms=primary_form(secret), yesno=["ok"]
+        )
+
+        loaded.module.run()
+
+        _, _, _, where, mode = [
+            one for one in console.calls if one[0] == "textbox"
+        ][-1]
+        assert mode == 0o600
+        assert not os.path.exists(where)
+        assert not os.path.exists(os.path.dirname(where))
+
+    def test_a_failed_apply_still_shows_the_password_and_warns(
+        self, screen, spec, keel, secret, monkeypatch
+    ):
+        monkeypatch.setattr(keelcli, "generate_password", lambda: "g3n")
+        keel["answers"] = [(0, "", ""), (16, "database.server: failed", "")]
+        loaded, console = screen(
+            "Cloud/01Primary.py", forms=primary_form(secret), yesno=["ok"]
+        )
+
+        loaded.module.run()
+
+        handout = textboxes(console)[-1]
+        assert handout.startswith("THIS NODE IS NOT READY")
+        assert "exit 16" in handout
+        assert "g3n" in handout
+
+    def test_an_empty_origin_list_is_said_plainly(
+        self, screen, spec, keel, secret
+    ):
+        loaded, console = screen(
+            "Cloud/01Primary.py",
+            forms=[("ok", [NODE6, "  ", str(secret)])], yesno=["ok"],
+        )
+
+        loaded.module.run()
+
+        assert server_from(spec)["replication"]["allowed_from"] == []
+        assert keelcli.NO_ORIGIN in textboxes(console)[-1]
 
     def test_a_password_already_there_is_not_shown_again(
         self, screen, spec, keel, secret
@@ -393,8 +512,8 @@ class TestThePrimaryScreen:
         loaded.module.run()
 
         assert questions(console) == []
-        assert "0ld-v4lue" not in messages(console)[-1]
-        assert "not shown here" in messages(console)[-1]
+        assert "0ld-v4lue" not in textboxes(console)[-1]
+        assert "not shown here" in textboxes(console)[-1]
         assert secret.read_text() == "0ld-v4lue\n"
 
     def test_declining_every_password_changes_nothing(
@@ -485,7 +604,12 @@ class TestTheReplicaScreen:
         assert server["replication"]["secret"] == {"file": str(secret)}
         assert secret.read_text() == "p4ste\n"
         assert os.stat(secret).st_mode & 0o777 == 0o600
-        assert "--system-only" in keel["calls"][-1]
+        applied = keel["calls"][-1]
+        assert applied[:2] == ["spec", "apply"]
+        for flag in ("--system-only", "--skip-network", "--defer-certificate"):
+            assert flag in applied
+        for call in keel["calls"]:
+            assert all("p4ste" not in one for one in call)
 
     def test_keels_refusal_is_still_asked_after_the_warning(
         self, screen, described, keel, secret
@@ -514,3 +638,216 @@ class TestTheReplicaScreen:
         assert questions(console) == []
         assert keel["calls"] == []
         assert not Path(secret).exists()
+
+
+class TestWritingAllAtOnce:
+    def test_the_secret_leaves_nothing_beside_it(self, secret):
+        keelcli.write_secret(str(secret), "one")
+        keelcli.write_secret(str(secret), "two")
+
+        assert [one.name for one in secret.parent.iterdir()] == [secret.name]
+        assert secret.read_text() == "two\n"
+
+    def test_a_replace_that_fails_leaves_the_old_value_and_no_debris(
+        self, secret, monkeypatch
+    ):
+        keelcli.write_secret(str(secret), "old")
+
+        def refuse(source, target):
+            raise PermissionError(13, "Permission denied")
+
+        monkeypatch.setattr(keelcli.os, "replace", refuse)
+
+        problem = keelcli.write_secret(str(secret), "new")
+
+        assert "Permission denied" in problem
+        assert secret.read_text() == "old\n"
+        assert [one.name for one in secret.parent.iterdir()] == [secret.name]
+
+    def test_a_write_that_fails_midway_leaves_no_debris(
+        self, tmp_path, monkeypatch
+    ):
+        def full(descriptor, mode):
+            os.close(descriptor)
+            raise OSError(28, "No space left on device")
+
+        monkeypatch.setattr(keelcli.os, "fdopen", full)
+
+        written, problem = keelcli.write_beside(
+            str(tmp_path / "instance.yaml"), "x", ".keelcli-new"
+        )
+
+        assert written == ""
+        assert "No space left" in problem
+        assert list(tmp_path.iterdir()) == []
+
+    def test_a_directory_that_takes_no_new_file_says_why(
+        self, secret, monkeypatch
+    ):
+        secret.parent.mkdir()
+
+        def refuse(**kwargs):
+            raise PermissionError(13, "Permission denied")
+
+        monkeypatch.setattr(keelcli.tempfile, "mkstemp", refuse)
+
+        problem = keelcli.write_secret(str(secret), "x")
+
+        assert "Permission denied" in problem
+        assert not secret.exists()
+
+    def test_two_consoles_stage_into_two_files(self, tmp_path):
+        path = str(tmp_path / "instance.yaml")
+
+        first, _ = keelcli.stage_spec({"version": 1}, path)
+        second, _ = keelcli.stage_spec({"version": 1}, path)
+
+        assert first != second
+        assert Path(first).stat().st_mode & 0o777 == 0o600
+
+    def test_a_fresh_appliance_starts_the_smallest_description(
+        self, tmp_path
+    ):
+        found = keelcli.load_description(str(tmp_path / "absent.yaml"))
+
+        assert found == ({"version": 1}, "")
+
+
+class TestPuttingFilesBack:
+    def test_a_file_that_did_not_exist_is_removed_again(self, secret):
+        keelcli.write_secret(str(secret), "new")
+
+        assert keelcli.restore(str(secret), None) == ""
+        assert not secret.exists()
+        assert keelcli.restore(str(secret), None) == ""
+
+    def test_a_file_that_existed_gets_its_text_back(self, secret):
+        keelcli.write_secret(str(secret), "old")
+        before = keelcli.read_back(str(secret))
+        keelcli.write_secret(str(secret), "new")
+
+        assert keelcli.restore(str(secret), before) == ""
+        assert secret.read_text() == "old\n"
+        assert secret.stat().st_mode & 0o777 == 0o600
+
+    def test_nothing_to_read_back_is_none(self, secret):
+        assert keelcli.read_back(str(secret)) is None
+
+    def test_a_removal_that_fails_says_why(self, tmp_path):
+        stuck = tmp_path / "stuck"
+        stuck.mkdir()
+        (stuck / "inside").write_text("")
+
+        assert "stuck" in keelcli.restore(str(stuck), None)
+
+
+class TestThePrivateDirectory:
+    @pytest.mark.parametrize("preset", [None, "/var/tmp"])
+    def test_it_is_root_only_and_gone_with_the_environment_restored(
+        self, monkeypatch, preset
+    ):
+        if preset is None:
+            monkeypatch.delenv("TMPDIR", raising=False)
+        else:
+            monkeypatch.setenv("TMPDIR", preset)
+        before = tempfile.tempdir
+
+        with pytest.raises(RuntimeError):
+            with dbscreen.private_tmp() as directory:
+                assert os.stat(directory).st_mode & 0o777 == 0o700
+                assert os.environ["TMPDIR"] == directory
+                assert tempfile.gettempdir() == directory
+                raise RuntimeError("the session dropped")
+
+        assert not os.path.exists(directory)
+        assert os.environ.get("TMPDIR") == preset
+        assert tempfile.tempdir == before
+
+    def test_the_password_box_runs_inside_it(self, secret):
+        seen = []
+
+        class Watching(FakeConsole):
+            def _wrapper(self, dialog, text, *args, **kwargs):
+                seen.append(os.environ.get("TMPDIR", ""))
+                return super()._wrapper(dialog, text, *args, **kwargs)
+
+        console = Watching(passwords=[("ok", "p4ste")])
+
+        dbscreen.replica_password(console, "x", str(secret))
+
+        assert os.path.basename(seen[0]).startswith(dbscreen.PRIVATE_PREFIX)
+        assert not os.path.exists(seen[0])
+
+
+class TestNoToTheDestroyQuestion:
+    REFUSAL = (
+        "database.server.replication.primary: refused: becoming a replica"
+        " replaces the local database with a copy of the primary\n"
+    )
+
+    def run_replica(self, screen, answers):
+        loaded, console = screen(
+            "Cloud/02Replica.py", forms=replica_form(),
+            passwords=[("ok", "p4ste")], yesno=["ok", "cancel"],
+        )
+        loaded.module.run()
+        return console
+
+    def test_the_description_and_a_new_password_file_are_undone(
+        self, screen, spec, keel, secret, monkeypatch
+    ):
+        monkeypatch.setattr(keelcli, "DEFAULT_SECRET", str(secret))
+        keel["answers"] = [(0, "", ""), (16, self.REFUSAL, "")]
+
+        console = self.run_replica(screen, keel)
+
+        assert yaml.safe_load(spec.read_text()) == BASE
+        assert not secret.exists()
+        assert len(keel["calls"]) == 3
+        assert keel["calls"][-1][:2] == ["spec", "apply"]
+        assert "NOT a replica" in messages(console)[-1]
+
+    def test_a_password_that_was_there_is_put_back(
+        self, screen, spec, keel, secret, monkeypatch
+    ):
+        monkeypatch.setattr(keelcli, "DEFAULT_SECRET", str(secret))
+        keelcli.write_secret(str(secret), "0ld")
+        keel["answers"] = [(0, "", ""), (16, self.REFUSAL, "")]
+
+        self.run_replica(screen, keel)
+
+        assert secret.read_text() == "0ld\n"
+
+    def test_with_no_description_before_there_is_nothing_to_reapply(
+        self, screen, keel, secret, tmp_path, monkeypatch
+    ):
+        absent = tmp_path / "instance.yaml"
+        monkeypatch.setattr(keelcli, "DEFAULT_SECRET", str(secret))
+        monkeypatch.setattr(
+            dbscreen, "engine_of", lambda console, title, server: "mariadb"
+        )
+        loaded, console = screen(
+            "Cloud/02Replica.py", forms=replica_form(),
+            passwords=[("ok", "p4ste")], yesno=["ok", "cancel"],
+        )
+        monkeypatch.setenv("KEEL_SPEC", str(absent))
+        keel["answers"] = [(0, "", ""), (16, self.REFUSAL, "")]
+
+        loaded.module.run()
+
+        assert not absent.exists()
+        assert len(keel["calls"]) == 2
+        assert "There was no" in messages(console)[-1]
+
+    def test_a_file_that_cannot_be_put_back_is_named_and_not_reapplied(
+        self, screen, spec, keel, secret, monkeypatch
+    ):
+        monkeypatch.setattr(keelcli, "DEFAULT_SECRET", str(secret))
+        monkeypatch.setattr(keelcli, "restore", lambda where, text: "stuck")
+        keel["answers"] = [(0, "", ""), (16, self.REFUSAL, "")]
+
+        console = self.run_replica(screen, keel)
+
+        assert len(keel["calls"]) == 2
+        assert "could NOT be put back" in messages(console)[-1]
+        assert "stuck" in messages(console)[-1]

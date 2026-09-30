@@ -251,6 +251,19 @@ moved from tests/test_database_mode.py to tests/conftest.py, because both
 database files use them, and `FakeConsole` answers `_wrapper
 ("passwordbox", ...)` from a `passwords` queue.
 
+## Measured on 2026-09-30 after the review of #12
+
+| File | Tests | Stmts | Branches | Cover |
+|------|-------|-------|----------|-------|
+| keelcli.py | as before plus the apply argv (--skip-network, --defer-certificate), the origin offered (the public /64, a unique local one when nothing is public, none without IPv6, a declared one kept), the handout's empty origin and failure warnings and its bare address, a bracketed address stored bare, the secret written all at once (no debris after a failed write, a failed replace or a refused temporary file), unique staged names, a fresh description, and putting files back | 325 | 58 | 100 percent, 0 missed, 0 partial |
+| dbscreen.py | as before plus the private temporary directory (0700, removed and the environment restored even when the box raises), the handout read from a 0600 file that is gone afterwards, the password never in any keel argv, and No to dropping data rolling back the description and the password and applying the old description again | 191 | 62 | 100 percent, 0 missed, 0 partial |
+| plugins.d/Instance | as before plus a failed primary apply and an empty origin list | 109 | 24 | 100 percent, 0 missed, 0 partial |
+| ifutil.py, keelbanner.py | unchanged | 603 | 246 | 100 percent, 0 missed, 0 partial |
+
+Total 493 tests, up from 462. Threshold in the caller: 100, unchanged.
+`FakeConsole` gained `textbox`, reached as `console.console.textbox` the
+way the real `Console` reaches pythondialog.
+
 ## Plan to reach 90 percent per file
 
 Priority order (size: small under 30 lines of test, medium under 150,

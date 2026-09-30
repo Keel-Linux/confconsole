@@ -24,6 +24,26 @@ confconsole (2.2.3+keel5) trixie; urgency=low
     description and before it is committed and applied, so a refused
     description leaves no credential behind and the apply never runs
     without it.
+  * The mode screens run apply with --skip-network and --defer-certificate:
+    saving a database mode never rewrites the interfaces, never opens the
+    network revert window, and never asks for a certificate. The screens
+    say so.
+  * Primary: 'Allow replication from' is prefilled with this node's /64,
+    public before unique local. Left empty, it authorizes nobody (keel
+    drops every replication account), and the handout says that first.
+    A failed apply still shows a generated password, under a warning that
+    the node is not ready.
+  * The handout is shown with a textbox read from a file in a private 0700
+    directory removed when the box closes, never as a msgbox, whose text
+    dialog receives as an argument that anyone on the machine can read.
+    The password box runs with that directory as TMPDIR as well.
+  * The address to paste is shown bare; a pasted [address] is accepted.
+  * Answering No to dropping the local databases puts the description and
+    the password file back and applies the old description again, since
+    keel had already rewritten the server's configuration.
+  * The secret is written all at once (a new 0600 file replacing the old),
+    the staged description gets a unique name, and a fresh appliance with
+    no description gets one started instead of an errno.
 
  -- Marcos Méndez <mendez.foto@gmail.com>  Wed, 30 Sep 2026 12:00:00 +0000
 

@@ -12,7 +12,7 @@ TEXT = (
     "Give the primary's literal IPv6 address, never a name: on Debian"
     " localhost is not an IPv6 name. The primary's own screen shows the"
     " address, and the password asked for next.\n\n"
-    + keelcli.NO_FAILOVER
+    + keelcli.THIS_NODE + "\n\n" + keelcli.NO_FAILOVER
 )
 
 

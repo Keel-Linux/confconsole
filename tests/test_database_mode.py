@@ -276,7 +276,7 @@ class TestTheFlow:
 
         assert self.commands(keel) == ["spec validate"]
         assert yaml.safe_load(spec.read_text()) == BASE
-        assert not Path(keelcli.staged_path(str(spec))).exists()
+        assert [one.name for one in spec.parent.iterdir()] == [spec.name]
         assert "was NOT changed" in console.calls[-1][2]
 
     def test_a_missing_keel_is_said_once_and_nothing_is_written(
@@ -296,7 +296,9 @@ class TestTheFlow:
     def test_a_description_that_cannot_be_read_stops_before_anything(
         self, tmp_path, monkeypatch, keel
     ):
-        monkeypatch.setenv("KEEL_SPEC", str(tmp_path / "absent.yaml"))
+        broken = tmp_path / "broken.yaml"
+        broken.write_text("database: [\n")
+        monkeypatch.setenv("KEEL_SPEC", str(broken))
         console = FakeConsole()
 
         dbscreen.apply_mode(
@@ -305,7 +307,25 @@ class TestTheFlow:
         )
 
         assert keel["calls"] == []
-        assert "absent.yaml" in console.calls[-1][2]
+        assert "broken.yaml" in console.calls[-1][2]
+
+    def test_a_fresh_appliance_with_no_description_gets_one(
+        self, tmp_path, monkeypatch, keel
+    ):
+        absent = tmp_path / "instance.yaml"
+        monkeypatch.setenv("KEEL_SPEC", str(absent))
+
+        dbscreen.apply_mode(
+            FakeConsole(), "x", keelcli.standalone_server("mariadb", "::1")
+        )
+
+        assert yaml.safe_load(absent.read_text()) == {
+            "version": 1,
+            "database": {"server": {
+                "engine": "mariadb", "role": "standalone", "listen": ["::1"],
+            }},
+        }
+        assert absent.stat().st_mode & 0o777 == 0o600
 
     def test_a_description_that_cannot_be_staged_stops_there(
         self, tmp_path, monkeypatch, keel
@@ -374,8 +394,15 @@ class TestTheOneQuestionThatLosesData:
 
         self.replica(console, keel)
 
-        assert len(keel["calls"]) == 2
-        assert "--destroy-local-database" not in keel["calls"][-1]
+        # validate, the refused apply, and the old description applied
+        # again: keel wrote the server's configuration before it refused.
+        assert len(keel["calls"]) == 3
+        assert all(
+            "--destroy-local-database" not in call for call in keel["calls"]
+        )
+        assert yaml.safe_load(spec.read_text()) == BASE
+        assert "NOT a replica" in console.calls[-1][2]
+        assert "applied again" in console.calls[-1][2]
 
     def test_a_keel_that_vanished_before_applying_says_so(self, spec, keel):
         keel["answers"] = [
@@ -524,13 +551,15 @@ class TestTheForm:
     def test_an_unreadable_description_asks_nothing(
         self, tmp_path, monkeypatch, keel
     ):
-        monkeypatch.setenv("KEEL_SPEC", str(tmp_path / "absent.yaml"))
+        broken = tmp_path / "broken.yaml"
+        broken.write_text("- not\n- a mapping\n")
+        monkeypatch.setenv("KEEL_SPEC", str(broken))
         console = FakeConsole()
 
         assert dbscreen.ask(
             console, "x", "text", [("Answer on", "listen", 20, 40)]
         ) is None
-        assert "absent.yaml" in console.calls[-1][2]
+        assert "broken.yaml" in console.calls[-1][2]
 
     def test_a_machine_with_no_engine_asks_nothing(
         self, keel, tmp_path, monkeypatch

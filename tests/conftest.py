@@ -185,6 +185,23 @@ class FakeConsole:
         self.calls = []
         self.msgbox_kwargs = {}
 
+    @property
+    def console(self):
+        # Console.console is the pythondialog Dialog; the fake stands in
+        # for both, so a textbox reached through it is recorded here.
+        return self
+
+    def textbox(self, path, height, width, **kwargs):
+        import os
+        import stat
+
+        mode = stat.S_IMODE(os.stat(path).st_mode)
+        with open(path) as fob:
+            self.calls.append(
+                ("textbox", kwargs.get("title"), fob.read(), path, mode)
+            )
+        return self.OK
+
     def _wrapper(self, dialog, text, *args, **kwargs):
         # Only the password box is reached through the wrapper by the
         # code under test; anything else is a test that went wrong.

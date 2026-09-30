@@ -15,7 +15,8 @@ TEXT = (
     " the address to replicate from, the account and where the password"
     " is kept, and offers to generate that password.\n\n"
     "A primary holds authorizations, not replicas. Nothing here creates"
-    " a replica anywhere.\n\n" + keelcli.NO_FAILOVER
+    " a replica anywhere.\n\n" + keelcli.THIS_NODE + "\n\n"
+    + keelcli.NO_FAILOVER
 )
 
 
@@ -45,8 +46,13 @@ def run():
     where = keelcli.reachable(
         server.get("listen") or [], dbscreen.local_addresses()
     )
-    console.msgbox(
-        TITLE,
-        keelcli.handout_text(answers["engine"], where, secret, password),
-        autosize=True,
+    failure = ""
+    if result.code != keelcli.OK:
+        failure = keelcli.describe_exit("apply", result.code)
+    dbscreen.show_secret(
+        console, TITLE,
+        keelcli.handout_text(
+            answers["engine"], where, secret, password,
+            origins=server["replication"]["allowed_from"], failure=failure,
+        ),
     )

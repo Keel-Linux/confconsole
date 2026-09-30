@@ -7,7 +7,7 @@ jobs:
   tests:
     # Threshold 100: ifutil.py, keelcli.py, keelbanner.py, dbscreen.py and
     # the Instance menu entries, the database mode screens included,
-    # measure 100 percent (462 tests, lines and branches). The
+    # measure 100 percent (493 tests, lines and branches). The
     # package list names the modules with tests; a module is appended as
     # its tests land (COVERAGE.md plan) and the threshold is only ever
     # raised (decision 0006). Baseline before the first test: 0 percent.
