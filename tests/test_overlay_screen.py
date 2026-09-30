@@ -170,10 +170,37 @@ class TestTexts:
         assert "the spec was applied" in text
 
     def test_nothing_pending_says_nothing_of_confirming(self):
+        failed = APPLIED.replace(": done\n", ": failed: wg-quick exited 1;"
+                                 " reverted to the previous file\n")
         for result in (make_result(wgcli.APPLY, 0, "unchanged\n"),
-                       make_result(wgcli.APPLY, 16, APPLIED)):
+                       make_result(wgcli.APPLY, 16, failed),
+                       make_result(wgcli.APPLY, 0, APPLIED.replace(
+                           ": done\n", "\n"))):
             assert not wgcli.is_pending(result)
             assert "REVERTS" not in wgcli.applied_text(result)
+
+    def test_any_pending_network_change_says_how_to_confirm(self):
+        """Not only an overlay this run brought up: an uplink change, one
+        brought up before a later step failed, or one an earlier run left
+        waiting, which keel names when it refuses another"""
+        uplink = (
+            "network: bring eth0 up on a new /etc/network/interfaces; it"
+            " reverts in 120 s unless `keel network confirm` is run from a"
+            " new session over the new configuration: done\n"
+        )
+        waiting = (
+            "network.overlay: refused: a network change is waiting for its"
+            " confirmation: keel network confirm from a new session, or let"
+            " it revert, before another one\n"
+        )
+        for result in (make_result(wgcli.APPLY, 0, uplink),
+                       make_result(wgcli.APPLY, 16, "tls: failed\n" + APPLIED),
+                       make_result(wgcli.APPLY, 16, waiting)):
+            assert wgcli.is_pending(result)
+            text = wgcli.applied_text(result)
+            assert "REVERTS BY ITSELF" in text
+            assert "Confirm from a NEW session" in text
+            assert "keel network confirm" in text
 
     def test_the_confirm_and_key_verdicts(self):
         assert "confirmed: the network change stays" in wgcli.command_text(
@@ -183,11 +210,13 @@ class TestTexts:
         assert "no public key" in wgcli.command_text(
             "key", make_result(wgcli.KEY, 16))
 
-    def test_apply_is_allowed_to_move_the_network(self):
+    def test_apply_moves_the_overlay_and_never_the_uplink(self):
         """The database screens pass --skip-network; this one must not,
-        since bringing the overlay up is what it is for"""
+        since bringing the overlay up is what it is for, but it passes
+        --skip-uplink, so adding a peer never moves network.interfaces"""
         assert "--skip-network" in keelcli.APPLY
         assert "--skip-network" not in wgcli.APPLY
+        assert "--skip-uplink" in wgcli.APPLY
         assert wgcli.APPLY[:3] == ["spec", "apply", "--system-only"]
 
 

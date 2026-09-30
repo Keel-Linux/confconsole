@@ -22,15 +22,21 @@ SUGGEST = ["network", "wireguard", "suggest-address"]
 CONFIRM = ["network", "confirm"]
 # Unlike the database screens (keelcli.APPLY), this one exists to change
 # the network: no --skip-network, so keel brings the overlay up under the
-# window. The certificate is still not asked for from here.
+# window. --skip-uplink keeps network.interfaces out of the run, so what
+# this screen applies never moves the interface the operator came in on.
+# The certificate is still not asked for from here.
 APPLY = [
     "spec", "apply", "--system-only", "--non-interactive",
-    "--defer-certificate",
+    "--defer-certificate", "--skip-uplink",
 ]
 DEFAULT_PORT = 51820
 DEFAULT_KEEPALIVE = "25"
-# what apply prints for a change it brought up and that now waits
-PENDING = "bring the overlay"
+# what apply prints for a network change it brought up, overlay or
+# uplink, and that now waits: the change's line, carried out
+UNDER_WINDOW = "reverts in"
+DONE = ": done"
+# what keel says when it refuses a change because another one waits
+WAITING = "waiting for its confirmation"
 NO_ADDRESS = "(none yet: choose Address first)"
 THIS_NODE = (
     "This screen configures THIS node's side of the overlay only. On the"
@@ -166,8 +172,17 @@ def overlay_text(public_key: str, wireguard: dict) -> str:
 
 
 def is_pending(result: keelcli.Result) -> bool:
-    """Whether apply brought an overlay change up that now waits"""
-    return result.code == keelcli.OK and PENDING in result.output
+    """Whether a network change waits for its confirmation after apply
+
+    One this run brought up (its line carried out, whatever failed after
+    it), the overlay's or the uplink's, or one an earlier run left, which
+    keel names when it refuses another. A change that failed was rolled
+    back, and one only planned was never made.
+    """
+    return any(
+        WAITING in line or (UNDER_WINDOW in line and line.endswith(DONE))
+        for line in result.output.splitlines()
+    )
 
 
 def applied_text(result: keelcli.Result) -> str:

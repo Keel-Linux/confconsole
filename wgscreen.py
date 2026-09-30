@@ -6,10 +6,11 @@ This module shows this node's public key and overlay address, asking
 first use), collects an address or a peer, writes it into the instance
 description through the same stage, validate and commit as the database
 screens, and hands the description to ``keel spec apply --system-only``
-(``wgcli.APPLY``, without the database screens' ``--skip-network``). keel
+(``wgcli.APPLY``, without the database screens' ``--skip-network`` but
+with ``--skip-uplink``, so the uplink never moves from here). keel
 brings the overlay up under the confirmation window of decision 0018;
-the screen then says how to confirm, and offers to confirm from here,
-which keel accepts from a console only.
+whenever a network change then waits, the screen says how to confirm,
+and offers to confirm from here, which keel accepts from a console only.
 
 ``console`` is passed in, so each function is tested with a scripted
 fake and no dialog opens.

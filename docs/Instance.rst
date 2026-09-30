@@ -98,24 +98,27 @@ Every change is written the way the database screens write theirs: staged
 beside the description, checked by ``keel spec validate --no-secret-files``,
 committed only when valid (otherwise the description is left exactly as it
 was and keel's errors are shown), then applied with ``keel spec apply
---system-only --non-interactive --defer-certificate``. Unlike the database
-screens it does not pass ``--skip-network``: bringing the overlay up is
-what it is for, so a change the description makes to the uplink is
-applied too, and keel then asks for the overlay to wait for the uplink's
-confirmation, one change in the window at a time. keel brings the overlay
-up under the confirmation window
-of decision 0018, and the screen says what that means: the change reverts
-by itself when the window ends (120 seconds) unless it is confirmed with
-``keel network confirm`` from a NEW session, over the overlay from the
-other node (which also tests the overlay) or over this node's usual
-address. The screen then offers to confirm from here: keel accepts that
-from the machine's own console, and refuses it from an SSH session opened
-before the change, in which case the change reverts unless a new session
+--system-only --non-interactive --defer-certificate --skip-uplink``.
+Unlike the database screens it does not pass ``--skip-network``: bringing
+the overlay up is what it is for. It passes ``--skip-uplink`` instead, so
+adding or removing a peer never moves ``network.interfaces``, the
+interface the operator may have come in on, even when the description
+declares a change there. keel brings the overlay up under the
+confirmation window of decision 0018, and the screen says what that
+means: the change reverts by itself when the window ends (120 seconds)
+unless it is confirmed with ``keel network confirm`` from a NEW session,
+over the overlay from the other node (which also tests the overlay) or
+over this node's usual address. The screen says so whenever a network
+change waits after apply: one this run brought up, even if a later step
+failed, or one an earlier run left, which keel names when it refuses
+another. It then offers to confirm from here: keel accepts that from the
+machine's own console, and refuses it from an SSH session opened before
+the change, in which case the change reverts unless a new session
 confirms it.
 
 Headless equivalent: edit ``network.overlay.wireguard`` in the
-description, ``keel spec apply --system-only``, then ``keel network
-confirm`` from a new session.
+description, ``keel spec apply --system-only --skip-uplink``, then ``keel
+network confirm`` from a new session.
 
 Database mode
 -------------
