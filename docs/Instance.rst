@@ -151,10 +151,14 @@ Standalone
 Primary
   Asks for the addresses the server answers on (a loopback only answer is
   prefilled with this node's own addresses in front, IPv6 first), the
-  origins allowed to replicate (prefilled with this node's /64, public
-  before unique local, such as ``2001:db8:1::/64``; a prefix is preferred,
-  a single address works, a name is accepted and fragile) and the password
-  file (``/etc/keel/secrets/replication_password``). An empty origin list
+  origins allowed to replicate (each replica's address; an empty field is
+  prefilled with the overlay peers' addresses, ``fd3d:80b2:d0d7::2,
+  fd3d:80b2:d0d7::3``; a name is accepted and fragile) and the password
+  file (``/etc/keel/secrets/replication_password``). No prefix is
+  offered: MariaDB matches the text of a replica's address, which can
+  leave out a zero group of the prefix (``fd3d:80b2:d0d7::2`` is not
+  ``fd3d:80b2:d0d7:0:...``), so keel refuses such a prefix, the overlay
+  /64 among them (``docs/spec.md`` of keel). An empty origin list
   authorizes nobody: keel drops every replication account, and the
   handout says so first. When the password file holds nothing the screen
   offers to generate a password; No lets the operator type one. After the
@@ -163,7 +167,7 @@ Primary
       Replicate from (address), IPv6 first:
         2001:db8:1::10
         (with a port it is written [2001:db8:1::10]:3306; type the bare address)
-      Allowed to replicate: 2001:db8:1::/64
+      Allowed to replicate: fd3d:80b2:d0d7::2, fd3d:80b2:d0d7::3
       Port: 3306 (leave the field blank)
       Replication account: repl (keel names it; both ends use it)
       Password kept in: /etc/keel/secrets/replication_password

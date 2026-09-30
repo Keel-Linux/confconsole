@@ -586,12 +586,11 @@ DEFAULT_PORTS = {"mariadb": 3306}
 PASSWORD_BYTES = 24
 SECRET_DIR_MODE = 0o700
 REPLACING = ".keelcli-tmp"
-ORIGIN_PREFIX = 64
 WILDCARDS = ("::", "0.0.0.0")
 NO_ORIGIN = (
     "NO ORIGIN IS AUTHORIZED. 'Allow replication from' was left empty, so"
     " keel removed every replication account and no replica can connect."
-    " Run this screen again and give the prefix your replicas live on."
+    " Run this screen again and give each replica's address."
 )
 LOOPBACK_ONLY = (
     "This server answers on loopback only, so no replica can reach it."
@@ -735,24 +734,20 @@ def primary_listen(listen: str, machine: list[str]) -> str:
     return ", ".join(own + current)
 
 
-def suggested_origin(allowed_from: str, machine: list[str]) -> str:
+def suggested_origin(allowed_from: str, peers: list[str]) -> str:
     """What the primary's form offers for 'Allow replication from'
 
     Left as it is when the description already names origins. Otherwise
-    the /64 of this node's first IPv6 address, public before unique local:
-    replicas usually live on the prefix their primary lives on, and an
-    empty field authorizes nobody (keel drops every replication account).
+    the overlay peers' addresses, each replica by its own: MariaDB
+    matches a grant against the text of the replica's address, and in
+    this node's /64 that text can drop a zero group of the prefix
+    (fd3d:80b2:d0d7::2 is not fd3d:80b2:d0d7:0:...), so keel refuses such
+    a prefix. With no peer the field stays empty, which authorizes nobody
+    (keel drops every replication account) and the handout says so.
     """
     if allowed_from.strip():
         return allowed_from
-    for one in ipv6_first([one for one in machine if is_global(one)]):
-        found = parse_address(one)
-        if found.version == 6:
-            network = ipaddress.ip_network(
-                f"{found}/{ORIGIN_PREFIX}", strict=False
-            )
-            return str(network)
-    return allowed_from
+    return ", ".join(peers)
 
 
 def bracketed(address: str) -> str:

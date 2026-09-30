@@ -21,6 +21,7 @@ from dialog import DialogError
 
 import ifutil
 import keelcli
+import wgcli
 
 NET_DIR = "/sys/class/net"
 PRIVATE_PREFIX = "keel-console-"
@@ -125,8 +126,9 @@ def ask(
 
     `fields` is (label, key, label width, field width), in the order the
     role needs them. `offer_addresses` puts this node's own addresses in
-    front of a loopback only 'Answer on', which is what a primary needs.
-    The answers always carry the secret file the description references,
+    front of a loopback only 'Answer on', which is what a primary needs,
+    and the overlay peers' addresses in an empty 'Allow replication
+    from'. The answers always carry the secret file the description references,
     asked or not.
     """
     path = keelcli.spec_path()
@@ -143,7 +145,7 @@ def ask(
         machine = local_addresses()
         filled["listen"] = keelcli.primary_listen(filled["listen"], machine)
         filled["allowed_from"] = keelcli.suggested_origin(
-            filled["allowed_from"], machine
+            filled["allowed_from"], wgcli.peer_addresses(document)
         )
     shown = [
         (label, filled[key], label_width, field_width)
