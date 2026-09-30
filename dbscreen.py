@@ -32,7 +32,23 @@ SKIPPED_INTERFACES = (
     "lo", "tap", "tun", "vmnet", "veth", "wmaster", "natbr", "docker",
 )
 TRANSIENT = {"temporary", "deprecated", "tentative"}
-PASSWORD_BOX = (10, 64)
+# dialog sizes a password box to its text: at a fixed 10 rows the Replica
+# screen's box drew its field over its frame and lost its buttons on a 24
+# row console (role-b, 2026-09-30)
+PASSWORD_BOX = (0, 0)
+# A form does not scroll its text, and on a 24 row console (lxc-console,
+# pct console) the Primary and Replica screens' text left no room for the
+# fields: dialog failed with "Can't make sub-window". A text longer than
+# this is shown first in a message box, which scrolls, and the form then
+# says only what it is.
+LONG_TEXT = 500
+# What a form field holds, whatever its width on screen: this node's
+# addresses offered for 'Answer on' went past 44 characters, and dialog
+# cut them to an address keel refused (role-a, 2026-09-30).
+INPUT_MAX = 1024
+FORM_PROMPT = (
+    "What THIS node needs. The screen before says what each field is for."
+)
 NO_PASSWORD = (
     "No replication password was given and {path} holds none, so there is"
     " nothing a replica could authenticate with. Nothing was changed."
@@ -86,18 +102,32 @@ def engine_of(console, title: str, server: dict) -> str:
     declared = str(server.get("engine") or "")
     if declared:
         return declared
-    result = call(console, title, ["inspect", "--output", INSPECTED,
-                                   "--report", REPORT])
-    if result is None:
+    observed, output, problem = observed_engine()
+    if problem:
+        console.msgbox(title, problem)
         return ""
+    if not observed:
+        console.msgbox(title, f"{NO_ENGINE}\n\n{output}".strip())
+    return observed
+
+
+def observed_engine() -> tuple[str, str, str]:
+    """The engine `keel inspect` finds on this machine, without a dialog
+
+    (the engine or "", what keel printed, what went wrong or ""). The
+    first boot asks this quietly: an appliance without a database server
+    has no role to choose, and says so in its log rather than on screen.
+    """
+    try:
+        result = keelcli.call(["inspect", "--output", INSPECTED,
+                               "--report", REPORT])
+    except keelcli.KeelNotInstalled as error:
+        return "", "", str(error)
     document, problem = keelcli.load_spec(INSPECTED)
     if problem:
-        console.msgbox(title, f"{INSPECT_FAILED}\n\n{problem}")
-        return ""
-    observed = str(keelcli.server_of(document).get("engine") or "")
-    if not observed:
-        console.msgbox(title, f"{NO_ENGINE}\n\n{result.output}".strip())
-    return observed
+        return "", result.output, f"{INSPECT_FAILED}\n\n{problem}"
+    engine = str(keelcli.server_of(document).get("engine") or "")
+    return engine, result.output, ""
 
 
 def defaults(server: dict) -> dict:
@@ -152,6 +182,9 @@ def ask(
         )
         if refused:
             text = keelcli.refused_text(refused, peers) + "\n\n" + text
+    if len(text) > LONG_TEXT:
+        console.msgbox(title, text, autosize=True)
+        text = FORM_PROMPT
     shown = [
         (label, filled[key], label_width, field_width)
         for label, key, label_width, field_width in fields
@@ -168,10 +201,15 @@ def ask(
 
 
 def format_fields(fields: list) -> list:
-    """(label, value, label width, field width) as dialog wants a form"""
+    """(label, value, label width, field width) as dialog wants a form
+
+    The field is `field width` columns on screen and holds up to
+    INPUT_MAX characters, scrolling: dialog cuts a value at its input
+    length, and a list of addresses is longer than the field.
+    """
     return [
         (label, index + 1, 1, value, index + 1, label_width + 2,
-         field_width, field_width)
+         field_width, INPUT_MAX)
         for index, (label, value, label_width, field_width)
         in enumerate(fields)
     ]

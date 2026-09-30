@@ -320,7 +320,11 @@ class Console:
         text: str,
         choices: list[tuple[str, str]],
         no_cancel: bool = False,
+        default_item: str | None = None,
     ) -> tuple[str, str]:
+        # default_item: the choice highlighted when the menu opens, such
+        # as the role a node already has; dialog's first one otherwise
+        extra = {} if default_item is None else {"default_item": default_item}
         v = self._wrapper(
             "menu",
             text,
@@ -330,6 +334,7 @@ class Console:
             title=title,
             choices=choices,
             no_cancel=no_cancel,
+            **extra,
         )
         assert isinstance(v, tuple)
         return v
@@ -632,24 +637,8 @@ class TurnkeyConsole:
             self.console.msgbox("Error", error)
             return "networking"
 
-        # tklbam integration
-        tklbamstatus_cmd = subprocess.run(
-            ["which", "tklbam-status"],
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-        if tklbamstatus_cmd:
-            tklbam_status = subprocess.run(
-                [tklbamstatus_cmd, "--short"],
-                capture_output=True,
-                text=True,
-            ).stdout
-        else:
-            tklbam_status = (
-                "TKLBAM not found - please check that it's installed."
-            )
-        log.info(tklbam_status)
-
+        # No TKLBAM status and no TurnKey Hub footer: a Keel appliance
+        # ships neither and depends on no hub (handbook decision 0020).
         # display usage, IPv6 first
         ipv6_addr = ifutil.get_ipv6conf(ifname)[0]
         ip_addr = self._get_public_ipaddr()
@@ -674,14 +663,6 @@ class TurnkeyConsole:
             f"Usage started - hostname: {hostname} ipv6: {ipv6_addr}"
             f" ip: {ip_addr}"
         )
-        gap = self.height - len(text.splitlines()) - 11
-        gap = gap if gap >= 1 else 1
-
-        text += f"\n\n{tklbam_status}"
-        text += "\n" * gap
-        text += "         TurnKey Backups and Cloud Deployment\n"
-        text += "             https://hub.turnkeylinux.org"
-
         # The mark above the usage text, when the terminal has room for
         # it over and above the rows the screen already uses: the box
         # grows by what the mark takes, so not one line of what the

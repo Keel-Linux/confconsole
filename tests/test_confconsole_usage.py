@@ -3,7 +3,7 @@ summary line.
 
 `render_usage` and `render_usage_line` are pure functions: a template
 string in, text out, no file and no dialog. `usage()` is exercised with
-its collaborators stubbed (interfaces, addresses, `tklbam-status`, the
+its collaborators stubbed (interfaces, addresses, the public address, the
 template path, the terminal size and the mark files) and a fake console
 that records the message box. The mark decision itself is measured in
 tests/test_keelbanner.py; what is checked here is that the mark goes
@@ -277,24 +277,16 @@ class TestNetworkMenuIPv6First:
         assert tc()._get_netmenu()[1] == ("eth1", V6)
 
 
-class FakeCompleted:
-    def __init__(self, stdout="", returncode=0):
-        self.stdout = stdout
-        self.returncode = returncode
-
-
 @pytest.fixture
 def usage_env(confconsole, net_stubs, monkeypatch, tmp_path):
     """Everything usage() reads, replaced: adapters and addresses through
-    net_stubs, tklbam-status and the public address command through a
-    scripted subprocess.run, the template through conf.path."""
-    state = {"tklbam": "TKLBAM: not initialized", "publicip": None}
+    net_stubs, the public address through _get_public_ipaddr, the
+    template through conf.path. The screen runs no command: a Keel
+    appliance has no TKLBAM to ask (handbook decision 0020, the TurnKey
+    Hub is not a dependency), so any command it ran fails the test."""
+    state = {"publicip": None}
 
     def fake_run(argv, **kwargs):
-        if argv == ["which", "tklbam-status"]:
-            return FakeCompleted("/usr/bin/tklbam-status\n")
-        if argv == ["/usr/bin/tklbam-status", "--short"]:
-            return FakeCompleted(state["tklbam"] + "\n")
         raise AssertionError(f"unexpected command {argv}")
 
     monkeypatch.setattr(confconsole.subprocess, "run", fake_run)
@@ -358,9 +350,22 @@ class TestUsageScreen:
         lines = text.splitlines()
         assert lines[0] == f"Web:       http://[{V6}]"
         assert lines[6] == f"Web:       http://{V4}"
-        assert "TKLBAM: not initialized" in text
-        assert lines[-1] == "             https://hub.turnkeylinux.org"
+        assert lines[-1] == f"SSH/SFTP:  root@{V4} (port 22)"
         assert console.running is True
+
+    def test_no_turnkey_hub_and_no_tklbam_lines(self, tc, usage_env):
+        # The lines the maintainer saw at the end of the first boot of
+        # Template B2: TurnKey's backup and hub service, which a Keel
+        # appliance neither ships nor depends on.
+        usage_env["net"]["ipv6conf"] = (V6, "64")
+        console = make_usage_console(tc)
+
+        console.usage()
+
+        text = console.console.calls[-1][2]
+        assert "TKLBAM" not in text
+        assert "TurnKey Backups" not in text
+        assert "hub.turnkeylinux.org" not in text
 
     def test_public_address_replaces_ipv4_only(self, tc, usage_env):
         usage_env["net"]["ipv6conf"] = (V6, "64")
@@ -385,19 +390,7 @@ class TestUsageScreen:
         text = console.console.calls[-1][2]
         assert text.splitlines()[0] == f"IPv6 SSH:  root@{V6}"
 
-    def test_gap_before_the_footer_shrinks_with_the_text(self, tc, usage_env):
-        # 11 lines of services on a 25 line screen leave a gap of 3
-        usage_env["net"]["ipconf"] = (V4, "255.255.255.0", "192.0.2.1", [])
-        usage_env["net"]["ipv6conf"] = (V6, "64")
-        console = make_usage_console(tc)
-
-        console.usage()
-
-        text = console.console.calls[-1][2]
-        footer = "TKLBAM: not initialized\n\n\n\n         TurnKey Backups"
-        assert footer in text
-
-    def test_gap_never_drops_below_one_line(
+    def test_the_text_is_the_services_and_nothing_after_them(
         self, tc, usage_env, confconsole, monkeypatch
     ):
         long_text = "\n".join(f"Service {i}: root@{V6}" for i in range(20))
@@ -408,8 +401,7 @@ class TestUsageScreen:
 
         console.usage()
 
-        text = console.console.calls[-1][2]
-        assert "TKLBAM: not initialized\n\n         TurnKey Backups" in text
+        assert console.console.calls[-1][2] == long_text
 
     def test_quit_button_without_advanced_menu(self, tc, usage_env):
         usage_env["net"]["ipv6conf"] = (V6, "64")
@@ -450,21 +442,6 @@ class TestUsageScreen:
 
         with pytest.raises(SystemExit):
             console.usage()
-
-    def test_tklbam_missing_is_reported(
-        self, tc, usage_env, confconsole, monkeypatch
-    ):
-        def fake_run(argv, **kwargs):
-            assert argv == ["which", "tklbam-status"]
-            return FakeCompleted("")
-
-        monkeypatch.setattr(confconsole.subprocess, "run", fake_run)
-        usage_env["net"]["ipv6conf"] = (V6, "64")
-        console = make_usage_console(tc)
-
-        console.usage()
-
-        assert "TKLBAM not found" in console.console.calls[-1][2]
 
     def test_closing_the_box_stops_the_loop(self, tc, usage_env):
         usage_env["net"]["ipv6conf"] = (V6, "64")
@@ -603,7 +580,7 @@ class TestUsageMark:
         assert text.splitlines()[0] == f"Web:       http://[{V6}]"
         assert console.console.msgbox_kwargs["height"] == BOX_ROWS
 
-    def test_the_mark_does_not_displace_the_ipv4_block_or_the_footer(
+    def test_the_mark_does_not_displace_the_ipv4_block(
         self, tc, usage_env
     ):
         # Arrange
@@ -621,8 +598,7 @@ class TestUsageMark:
         lines = console.console.calls[-1][2].splitlines()
         ipv4_line = keelbanner.added_rows(FULL_MARK) + 6
         assert lines[ipv4_line] == f"Web:       http://{V4}"
-        assert "TKLBAM: not initialized" in lines
-        assert lines[-1] == "             https://hub.turnkeylinux.org"
+        assert lines[-1] == f"SSH/SFTP:  root@{V4} (port 22)"
 
     def test_a_narrow_terminal_drops_the_mark(self, tc, usage_env):
         # Arrange

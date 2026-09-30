@@ -300,6 +300,25 @@ run when a keel 0.11 or later is at hand (on `PATH`, or named by
 `KEEL`), and skip otherwise, since keel is not a dependency of this
 package.
 
+## Measured on 2026-09-30 with the first boot role and Keel Cloud screens
+
+| File | Tests | Stmts | Branches | Cover |
+|------|-------|-------|----------|-------|
+| keelfirstboot.py (new: the first boot entry point inithooks calls) | in tests/test_first_boot.py: the usage error and the script run as `__main__`, each reason a step is not asked (a declared role or key, a preseeded SKIP, keel missing, a description that does not read, no terminal) and keel-init asking anyway and ignoring the preseed, a preseeded key stored with no screen, the screen drawn on the terminal of standard input when standard output is a pipe (a real pseudo terminal and pipe), a console no taller than the terminal, the role menu with Standalone first and opening on the declared role, the engine asked of keel inspect quietly and a machine without a database server not asked, Standalone recorded without an apply or through its own screen, the Primary and Replica flows with each Later, the overlay step's choices, the Database mode screens loaded the way confconsole loads them, the key written to a 0600 file and never into the description, a held key kept on Keep, Cancel or an empty Replace and cleared only by Remove, with every failure leaving the description and the key file as they were | 265 | 90 | 100 percent, 0 missed, 0 partial |
+| dbscreen.py | as before plus a long screen text read first in a box that scrolls, a field that holds more than its width, and password boxes sized to their text; `engine_of` asks the new `observed_engine`, which the first boot calls without a dialog | 221 | 70 | 100 percent, 0 missed, 0 partial |
+| wgscreen.py | as before; `commit` takes the title its messages carry | 102 | 42 | 100 percent, 0 missed, 0 partial |
+| plugins.d/Instance | Keel_Cloud.py joins the entries | 4 more | 0 more | 100 percent, 0 missed, 0 partial |
+
+Total 646 tests with a keel 0.11 at hand (641 passed and 5 skipped
+without one), 100 percent over the measured package, which gains
+`keelfirstboot`. Threshold in the caller: 100, unchanged. Three of the
+new tests hand what the first boot records (a standalone role, `hub:
+api_key: skip`, a key file reference) to a real `keel spec validate`.
+
+`confconsole.py` is not measured (see above); its usage screen tests
+lose the TKLBAM and TurnKey Hub footer and gain one that checks neither
+is shown and that the screen runs no command.
+
 ## Plan to reach 90 percent per file
 
 Priority order (size: small under 30 lines of test, medium under 150,

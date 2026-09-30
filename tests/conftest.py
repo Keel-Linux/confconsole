@@ -238,6 +238,7 @@ class FakeConsole:
         if not self.menus:
             raise AssertionError("menu must not be opened by these tests")
         self.calls.append(("menu", title, text, choices))
+        self.menu_kwargs = kwargs
         return self.menus.pop(0)
 
 

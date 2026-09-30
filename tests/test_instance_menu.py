@@ -19,7 +19,7 @@ INSTANCE_DIR = (
     Path(__file__).resolve().parent.parent / "plugins.d" / "Instance"
 )
 ENTRIES = ["View_spec.py", "Apply_spec.py", "Show_drift.py", "Export_spec.py",
-           "Overlay_network.py"]
+           "Overlay_network.py", "Keel_Cloud.py"]
 SPEC = "/etc/keel/instance.yaml"
 
 

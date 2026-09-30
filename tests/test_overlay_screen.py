@@ -250,10 +250,11 @@ class TestTexts:
         assert "REVERTS BY ITSELF" in wgcli.applied_text(result)
 
     def test_the_package_asks_for_a_keel_with_skip_uplink(self):
-        """An older keel dies in argparse on --skip-uplink"""
+        """An older keel dies in argparse on --skip-uplink, and before
+        0.11.2 refuses the confirmation from an LXC console"""
         control = (Path(__file__).resolve().parent.parent / "debian"
                    / "control").read_text()
-        assert " keel (>= 0.11.0),\n" in control
+        assert " keel (>= 0.11.2),\n" in control
         assert FIRST_WITH_OVERLAY == (0, 11)
 
     def test_apply_moves_the_overlay_and_never_the_uplink(self):

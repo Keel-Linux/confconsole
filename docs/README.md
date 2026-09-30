@@ -39,7 +39,6 @@ The information provided by the main screen/"limited" mode includes:
 
     - The current external IP address
     - The services the user may connect to over the network
-    - TKLBAM status
 
 Advanced
 --------

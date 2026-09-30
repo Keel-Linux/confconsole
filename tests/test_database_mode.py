@@ -543,6 +543,28 @@ class TestTheForm:
             "engine": "mariadb",
         }
 
+    def test_a_long_explanation_is_read_first_in_a_box_that_scrolls(
+        self, spec, keel
+    ):
+        # A form does not scroll its text: on a 24 row console
+        # (lxc-console, pct console) the Primary screen's text left no
+        # room for the fields and dialog failed (role-a, 2026-09-30).
+        long_text = "word " * 120
+        console = FakeConsole(forms=[("cancel", [])])
+
+        dbscreen.ask(console, "t", long_text,
+                     [("Answer on", "listen", 20, 40)])
+
+        assert console.calls[0] == ("msgbox", "t", long_text)
+        assert console.calls[1][:2] == ("form", dbscreen.FORM_PROMPT)
+
+    def test_a_short_explanation_stays_on_the_form(self, spec, keel):
+        console = FakeConsole(forms=[("cancel", [])])
+
+        dbscreen.ask(console, "t", "short", [("Answer on", "listen", 20, 40)])
+
+        assert [call[:2] for call in console.calls] == [("form", "short")]
+
     def test_a_cancelled_form_answers_nothing(self, spec, keel):
         console = FakeConsole(forms=[("cancel", [])])
 
@@ -581,7 +603,20 @@ class TestTheForm:
     def test_the_fields_are_laid_out_one_per_line(self):
         found = dbscreen.format_fields([("Answer on", "::1", 20, 40)])
 
-        assert found == [("Answer on", 1, 1, "::1", 1, 22, 40, 40)]
+        assert found == [("Answer on", 1, 1, "::1", 1, 22, 40,
+                          dbscreen.INPUT_MAX)]
+
+    def test_a_value_longer_than_its_field_is_kept_whole(self):
+        # dialog cuts a value at the field's input length: this node's
+        # addresses offered for 'Answer on' went past 44 characters and
+        # keel refused the cut "fd94:f3f:4e" (role-a, 2026-09-30). The
+        # field scrolls instead.
+        value = ", ".join(["fd94:f3f:4e2a:9c1b::1"] * 8)
+
+        found = dbscreen.format_fields([("Answer on", value, 20, 40)])
+
+        assert found[0][6] == 40
+        assert found[0][7] >= len(value)
 
 
 class TestTheScreensThemselves:
