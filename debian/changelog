@@ -1,3 +1,56 @@
+confconsole (2.2.3+keel8) trixie; urgency=low
+
+  * keelfirstboot.py, the first boot screens handbook decision 0020
+    asks for, run by the inithooks hooks 75keel-role and 80keel-cloud
+    (python3 /usr/lib/confconsole/keelfirstboot.py role|cloud).
+  * Role of this node: Standalone (the default), Primary or Replica. A
+    primary or a replica then goes through the Overlay network screen's
+    own actions (this node's key, its overlay address, its peers) and
+    the Database mode screen of its role, loaded the way confconsole
+    loads it: no second copy of either. Each step that needs the other
+    node says what to do on it and can be left with Later, which names
+    the confconsole entry that finishes it. The role reaches the
+    description only through the Database mode screen, so a node left
+    half way is still standalone. A fresh node that stays standalone
+    has database.server.role: standalone recorded, validated by keel,
+    and nothing applied.
+  * The overlay change is confirmed from the first boot's console when
+    the operator says Yes, as the Overlay network screen offers: keel
+    accepts a console (inithooks draws on /dev/tty1), and the change
+    never moves the uplink (--skip-uplink), so the console cannot be
+    the path it breaks. What that does not test, the overlay and SSH
+    over the uplink, the screens ask to test from the other node. In
+    an LXC container that console is /dev/lxc/tty1, which keel accepts
+    from 0.11.2 on: Recommends keel (>= 0.11.2).
+  * Database mode: a screen text too long for a form (Primary, Replica)
+    is shown first in a message box, which scrolls, and the form says
+    only what it is. On a 24 row console (lxc-console, pct console) the
+    form left its fields no room and dialog failed with "Can't make
+    sub-window", in confconsole as much as at first boot.
+  * A form field holds up to 1024 characters, scrolling, whatever its
+    width: dialog cut the addresses offered for 'Answer on' at 44, and
+    keel refused the cut address.
+  * Password boxes are sized to their text: at a fixed 10 rows the
+    Replica screen's box drew its field over its frame and lost its
+    buttons.
+  * The first boot's boxes are no taller than the terminal; confconsole
+    draws 25 rows, and an LXC console is often 24.
+  * Keel Cloud API key: optional, empty means standalone. The key goes
+    to /etc/keel/secrets/cloud_api_key (root, 0600) and the description
+    references it as hub.api_key; empty is hub.api_key: skip. The screen
+    says in one sentence that the key takes effect once the service
+    exists and that nothing contacts any service now. Also in the
+    Instance menu as Keel Cloud.
+  * Not asked when the description declares database.server.role or
+    hub.api_key, or HUB_APIKEY is preseeded (SKIP, or a key, which is
+    stored without a screen), when there is no terminal, or without
+    keel; keel-init asks again. The screens draw on the terminal of
+    standard input when standard output is not one.
+  * Usage screen: no TKLBAM status line and no "TurnKey Backups and
+    Cloud Deployment https://hub.turnkeylinux.org" footer.
+
+ -- Marcos Méndez <mendez.foto@gmail.com>  Wed, 30 Sep 2026 08:45:00 +0000
+
 confconsole (2.2.3+keel7) trixie; urgency=low
 
   * Database mode, Cloud / Primary: 'Allow replication from' no longer

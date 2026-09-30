@@ -65,6 +65,11 @@ def textboxes(console):
     return [one[2] for one in console.calls if one[0] == "textbox"]
 
 
+def first_form(console):
+    """The form, which the screen's long text now comes before"""
+    return next(one for one in console.calls if one[0] == "form")
+
+
 class TestTheAddressesAReplicaCanUse:
     def test_a_loopback_only_server_is_reachable_by_nobody(self):
         assert keelcli.reachable(["::1", "127.0.0.1"], [NODE6]) == []
@@ -460,7 +465,7 @@ class TestThePrimaryScreen:
 
         loaded.module.run()
 
-        listen = console.calls[0][2][0][3]
+        listen = first_form(console)[2][0][3]
         assert listen.startswith(f"{NODE6}, {NODE4}")
 
     def test_the_form_offers_the_overlay_peers_addresses(
@@ -481,7 +486,7 @@ class TestThePrimaryScreen:
 
         loaded.module.run()
 
-        assert console.calls[0][2][1][3] == f"{PEER6}, {OTHER6}"
+        assert first_form(console)[2][1][3] == f"{PEER6}, {OTHER6}"
 
     def test_a_declared_prefix_keel_refuses_is_flagged_and_replaced(
         self, screen, spec, keel
@@ -505,9 +510,9 @@ class TestThePrimaryScreen:
 
         loaded.module.run()
 
-        _, text, fields, _ = console.calls[0]
+        fields = first_form(console)[2]
         assert fields[1][3] == PEER6
-        assert text.startswith(keelcli.refused_text(
+        assert messages(console)[0].startswith(keelcli.refused_text(
             ["fd3d:80b2:d0d7::/64"], [PEER6]
         ))
 
@@ -521,7 +526,7 @@ class TestThePrimaryScreen:
 
         loaded.module.run()
 
-        assert console.calls[0][2][1][3] == ""
+        assert first_form(console)[2][1][3] == ""
 
     def test_it_generates_applies_and_hands_out_once(
         self, screen, spec, keel, secret, monkeypatch
@@ -659,7 +664,7 @@ class TestTheReplicaScreen:
 
         loaded.module.run()
 
-        labels = [field[0] for field in console.calls[0][2]]
+        labels = [field[0] for field in first_form(console)[2]]
         assert "Replicate from (address)" in labels
         assert not any("file" in label for label in labels)
 

@@ -143,30 +143,32 @@ def remove_peer(console, path: str, document: dict, wireguard: dict):
         document, wgcli.without_peer(wireguard, key)))
 
 
-def commit(console, path: str, document: dict) -> bool:
+def commit(console, path: str, document: dict,
+           title: str = wgcli.TITLE) -> bool:
     """Stage, validate, commit; True once the description is in place
 
     What the operator typed becomes the description this machine boots
     from only once `keel spec validate` has accepted it, as on the
     database screens; otherwise the file stays exactly as it was and
-    keel's own errors are shown.
+    keel's own errors are shown, under `title` (the first boot's role
+    screen records a role this way too).
     """
     staged, problem = keelcli.stage_spec(document, path)
     if problem:
-        console.msgbox(wgcli.TITLE, problem)
+        console.msgbox(title, problem)
         return False
-    result = dbscreen.call(console, wgcli.TITLE, [
+    result = dbscreen.call(console, title, [
         "spec", "validate", "--no-secret-files", "--spec", staged
     ])
     if result is None or result.code != keelcli.OK:
         keelcli.discard_spec(staged)
         if result is not None:
-            console.msgbox(wgcli.TITLE, keelcli.invalid_text(path, result),
+            console.msgbox(title, keelcli.invalid_text(path, result),
                            autosize=True)
         return False
     problem = keelcli.commit_spec(staged, path)
     if problem:
-        console.msgbox(wgcli.TITLE, problem)
+        console.msgbox(title, problem)
         return False
     return True
 
