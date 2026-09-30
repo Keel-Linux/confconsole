@@ -851,3 +851,110 @@ class TestNoToTheDestroyQuestion:
         assert len(keel["calls"]) == 2
         assert "could NOT be put back" in messages(console)[-1]
         assert "stuck" in messages(console)[-1]
+
+    def test_an_old_description_without_a_server_is_not_reapplied(
+        self, screen, spec, keel, secret, monkeypatch
+    ):
+        bare = {"version": 1, "instance": {"hostname": "mariadb"}}
+        spec.write_text(yaml.safe_dump(bare))
+        monkeypatch.setattr(keelcli, "DEFAULT_SECRET", str(secret))
+        monkeypatch.setattr(
+            dbscreen, "engine_of", lambda console, title, server: "mariadb"
+        )
+        keel["answers"] = [(0, "", ""), (16, self.REFUSAL, "")]
+
+        console = self.run_replica(screen, keel)
+
+        # validate and the refused apply: nothing of the old description
+        # would converge the server back, so it is not claimed to.
+        assert len(keel["calls"]) == 2
+        assert yaml.safe_load(spec.read_text()) == bare
+        assert not secret.exists()
+        said = messages(console)[-1]
+        assert "declares no database server" in said
+        assert "stays until a database mode is applied" in said
+        assert "applied again" not in said
+
+
+class TestACommitThatFails:
+    def primary(self, secret):
+        return keelcli.primary_server("mariadb", "::", PREFIX, str(secret))
+
+    def fail_commit(self, monkeypatch):
+        monkeypatch.setattr(
+            keelcli, "commit_spec", lambda staged, where: "read only"
+        )
+
+    def test_a_new_password_does_not_outlive_it(
+        self, spec, keel, secret, monkeypatch
+    ):
+        self.fail_commit(monkeypatch)
+        console = FakeConsole()
+
+        found = dbscreen.apply_mode(
+            console, "x", self.primary(secret), password="n3w"
+        )
+
+        assert found is None
+        assert not secret.exists()
+        assert yaml.safe_load(spec.read_text()) == BASE
+        assert [call[:2] for call in keel["calls"]] == [["spec", "validate"]]
+        said = messages(console)[-1]
+        assert "was NOT changed" in said
+        assert "read only" in said
+        assert "put back as it was" in said
+
+    def test_an_older_password_is_put_back(
+        self, spec, keel, secret, monkeypatch
+    ):
+        keelcli.write_secret(str(secret), "0ld")
+        self.fail_commit(monkeypatch)
+
+        dbscreen.apply_mode(
+            FakeConsole(), "x", self.primary(secret), password="n3w"
+        )
+
+        assert secret.read_text() == "0ld\n"
+
+    def test_a_password_that_cannot_be_put_back_is_named(
+        self, spec, keel, secret, monkeypatch
+    ):
+        self.fail_commit(monkeypatch)
+        monkeypatch.setattr(keelcli, "restore", lambda where, text: "stuck")
+        console = FakeConsole()
+
+        dbscreen.apply_mode(
+            console, "x", self.primary(secret), password="n3w"
+        )
+
+        said = messages(console)[-1]
+        assert "could NOT be put back" in said
+        assert "stuck" in said
+
+
+class TestWhatADescriptionDeclares:
+    def test_a_server_section_is_a_server(self):
+        assert keelcli.declares_server(yaml.safe_dump(BASE))
+
+    @pytest.mark.parametrize(
+        "text", [None, "", "version: 1\n", "- a\n- list\n", "database: [\n"]
+    )
+    def test_anything_else_declares_none(self, text):
+        assert not keelcli.declares_server(text)
+
+
+class TestATerminalTooSmall:
+    def test_the_handout_is_shown_anyway_sized_by_dialog(self):
+        class Small(FakeConsole):
+            def textbox(self, path, height, width, **kwargs):
+                if height:
+                    raise dbscreen.DialogError("Can't make new window")
+                self.sizes = (height, width)
+                return super().textbox(path, height, width, **kwargs)
+
+        console = Small()
+
+        dbscreen.show_secret(console, "x", "the password")
+
+        assert console.sizes == (0, 0)
+        assert "the password" in textboxes(console)[-1]

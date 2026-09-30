@@ -264,6 +264,14 @@ Total 493 tests, up from 462. Threshold in the caller: 100, unchanged.
 `FakeConsole` gained `textbox`, reached as `console.console.textbox` the
 way the real `Console` reaches pythondialog.
 
+The final verification of #12 added 11 more: a commit that fails taking a
+new password back, putting an older one back, and naming one that cannot
+be; an old description without a server not applied again after No;
+`declares_server` over a server section and six things that are not one;
+and the handout on a terminal too small for its box. keelcli.py 334
+statements and 60 branches, dbscreen.py 204 and 66, both 100 percent.
+Total **504 tests**, 100 percent over the measured package.
+
 ## Plan to reach 90 percent per file
 
 Priority order (size: small under 30 lines of test, medium under 150,

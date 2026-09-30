@@ -40,7 +40,15 @@ confconsole (2.2.3+keel5) trixie; urgency=low
   * The address to paste is shown bare; a pasted [address] is accepted.
   * Answering No to dropping the local databases puts the description and
     the password file back and applies the old description again, since
-    keel had already rewritten the server's configuration.
+    keel had already rewritten the server's configuration. Only an old
+    description that declares a database server is applied again; for
+    one that does not, the screen says the replica configuration stays
+    until a database mode is applied.
+  * A description that cannot be committed takes the password written for
+    it back with it, so no password is left in a file that no screen will
+    ever show again.
+  * The handout falls back to a box sized by dialog on a terminal too
+    small for it, as every other box of the console does.
   * The secret is written all at once (a new 0600 file replacing the old),
     the staged description gets a unique name, and a fresh appliance with
     no description gets one started instead of an errno.

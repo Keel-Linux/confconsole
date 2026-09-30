@@ -358,7 +358,9 @@ class TestTheFlow:
         )
 
         assert self.commands(keel) == ["spec validate"]
-        assert console.calls[-1][2] == "read only"
+        assert "read only" in console.calls[-1][2]
+        assert "was NOT changed" in console.calls[-1][2]
+        assert [one.name for one in spec.parent.iterdir()] == [spec.name]
 
 
 class TestTheOneQuestionThatLosesData:

@@ -17,6 +17,8 @@ import os
 import shutil
 import tempfile
 
+from dialog import DialogError
+
 import ifutil
 import keelcli
 
@@ -220,7 +222,20 @@ def apply_mode(
             return None
     problem = keelcli.commit_spec(staged, path)
     if problem:
-        console.msgbox(title, problem)
+        # The description stays as it was, so the password written for it
+        # goes too: kept, it would be a value no screen ever shows (a later
+        # run keeps a password that is already there).
+        keelcli.discard_spec(staged)
+        problems = put_back(before[1:])
+        lines = [f"{path} was NOT changed.", problem]
+        if problems:
+            lines += [
+                "The password file could NOT be put back; fix it by hand:",
+                *problems,
+            ]
+        elif password:
+            lines.append("The password file was put back as it was.")
+        console.msgbox(title, "\n\n".join(lines))
         return None
     result, declined = converge(console, title, path, may_destroy)
     if result is None:
@@ -242,19 +257,27 @@ def roll_back(console, title: str, before: list, refused) -> None:
     again. Where there was none, nothing is left to apply, and the screen
     says what stays.
     """
-    problems = [
+    problems = put_back(before)
+    path, old = before[0]
+    again = None
+    if keelcli.declares_server(old) and not problems:
+        again = call(console, title, keelcli.APPLY + ["--spec", path])
+    console.msgbox(
+        title,
+        keelcli.rollback_text(
+            path, refused, again, problems, existed=old is not None
+        ),
+        autosize=True,
+    )
+
+
+def put_back(before: list) -> list[str]:
+    """Restore every file in `before`, last written first; the problems"""
+    return [
         problem
         for where, text in reversed(before)
         if (problem := keelcli.restore(where, text))
     ]
-    path, old = before[0]
-    again = None
-    if old is not None and not problems:
-        again = call(console, title, keelcli.APPLY + ["--spec", path])
-    console.msgbox(
-        title, keelcli.rollback_text(path, refused, again, problems),
-        autosize=True,
-    )
 
 
 def secret_path(server: dict) -> str:
@@ -393,4 +416,9 @@ def show_secret(console, title: str, text: str) -> None:
         with os.fdopen(descriptor, "w") as fob:
             fob.write(text + "\n")
         height, width = HANDOUT_BOX
-        console.console.textbox(where, height, width, title=title)
+        try:
+            console.console.textbox(where, height, width, title=title)
+        except DialogError:
+            # A terminal smaller than the box: the password must still be
+            # shown once, so let dialog size the box to what there is.
+            console.console.textbox(where, 0, 0, title=title)

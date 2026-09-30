@@ -484,8 +484,22 @@ def mode_text(server: dict, path: str, result: Result) -> str:
     )
 
 
+def declares_server(text: str | None) -> bool:
+    """Whether a description's text declares `database.server`
+
+    keel converges only what a description declares, so applying one that
+    declares no server again changes nothing a replica screen wrote.
+    """
+    try:
+        document = yaml.safe_load(text or "") or {}
+    except yaml.YAMLError:
+        return False
+    return isinstance(document, dict) and bool(server_of(document))
+
+
 def rollback_text(
-    path: str, refused: Result, again: Result | None, problems: list[str]
+    path: str, refused: Result, again: Result | None, problems: list[str],
+    existed: bool = True,
 ) -> str:
     """The screen after the operator answered No to dropping data"""
     lines = [
@@ -493,17 +507,27 @@ def rollback_text(
         " replica.", "",
         f"$ {refused.command}\n{refused.output}", "",
     ]
+    stays = (
+        " The server configuration keel wrote above before it refused"
+        " (the replica's drop-in, and a restart) stays until a database"
+        " mode is applied from this menu."
+    )
     if problems:
         lines += [
             "These could NOT be put back as they were; fix them by hand:",
             *problems,
         ]
-    elif again is None:
+    elif again is None and not existed:
         lines += [
             f"There was no {path} before this screen, so it was removed"
             " again, and so was the password file if this screen wrote it."
-            " What keel wrote above before it refused stays until a"
-            " database mode is applied.",
+            + stays,
+        ]
+    elif again is None:
+        lines += [
+            f"{path} and the password file were put back as they were. The"
+            " old description declares no database server, so keel has"
+            " nothing of it to apply again." + stays,
         ]
     else:
         lines += [

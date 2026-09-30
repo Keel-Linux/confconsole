@@ -124,9 +124,12 @@ Replica
   keel then refuses because the server holds databases of its own, its
   refusal is shown word for word and only a second Yes adds
   ``--destroy-local-database``. No to that question puts the description
-  and the password file back as they were and applies the old description
-  again, because keel had already rewritten the server's configuration
-  before it refused. A pasted ``[address]`` is stored bare.
+  and the password file back as they were and, when the old description
+  declares a database server, applies it again, because keel had already
+  rewritten the server's configuration before it refused. keel converges
+  only what a description declares, so when the old one declares no
+  server the screen says the replica configuration stays until a database
+  mode is applied. A pasted ``[address]`` is stored bare.
 
 Promote this replica
   Asks first, saying that nothing stops the old primary, and runs
