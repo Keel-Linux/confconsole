@@ -53,7 +53,7 @@ OK = "ok"
 ROLE = "role"
 CLOUD = "cloud"
 USAGE = "Syntax: keelfirstboot.py role|cloud"
-BACKTITLE = "Keel - First boot configuration"
+BACKTITLE = "Keel Linux - First boot configuration"
 TTY = "/dev/tty"
 # confconsole's box height, and the rows the back title and the shadow
 # take on a terminal smaller than that
