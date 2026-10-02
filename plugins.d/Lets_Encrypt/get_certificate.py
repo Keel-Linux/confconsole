@@ -1,4 +1,14 @@
-"""Get Let's Encrypt SSl cert"""
+"""Get Let's Encrypt SSl cert
+
+The domain boxes are prefilled from the instance description
+(/etc/keel/instance.yaml): tls.acme.domains when it declares any, else
+instance.fqdn, the name the first boot recorded; else from dehydrated's
+domains file as before, example.com on a fresh machine. Once the operator
+has confirmed the domains and the certificate was issued, the description
+gets tls.acme.domains and tls.acme.enabled: true, through keelcli as every
+Instance screen writes it; a request that fails writes nothing to it.
+dehydrated keeps reading its own domains file, which is written as before.
+"""
 
 import requests
 import subprocess
@@ -9,20 +19,21 @@ from shutil import copyfile, which
 from json import JSONDecodeError
 from glob import glob
 
+import keelcli
+
 LE_INFO_URL = "https://acme-v02.api.letsencrypt.org/directory"
 
 TITLE = "Certificate Creation Wizard"
+SPEC_TITLE = "Instance description"
 
-DESC = """Please enter domain(s) to generate certificate for.
+# Fits an 80x24 console with the five boxes under it (tests/test_lets_encrypt)
+DESC = """Enter the domain(s) the certificate is for, one per box; empty boxes
+are ignored. One certificate covers up to five domains.
 
-To generate a single certificate for up to five domains (including subdomains),
-enter each domain into a box, one domain per box. Empty boxes will be ignored.
-
-Wildcard domains are supported, but only when using DNS-01 challenge. Alias
-will be auto generated, so should not be entered here.
-
-For wildcards and for multiple certificates, please consult the docs:
-https://github.com/Keel-Linux/confconsole/blob/master/docs/Lets_encrypt.rst
+The boxes come from /etc/keel/instance.yaml (tls.acme.domains, else
+instance.fqdn); what you confirm is written back there once the
+certificate is issued. A wildcard needs the DNS-01 challenge, and its
+alias is generated: do not type it. More in docs/Lets_encrypt.rst.
 """
 
 dehydrated_conf = "/etc/dehydrated"
@@ -106,13 +117,24 @@ def gen_alias(line: str) -> str:
     return line.split(" ")[0].replace("*", "star").replace(".", "_")
 
 
+def spec_domains() -> list[str]:
+    """The domains the instance description offers, none when it has
+    none or does not read (the file then decides, as before)"""
+    document, problem = keelcli.load_description(keelcli.spec_path())
+    if problem:
+        return []
+    return keelcli.acme_domains(document)
+
+
 def load_domains() -> tuple[list[str], str | None]:
     """Loads domain conf, writes default config if non-existent. Expects
     "/etc/dehydrated" to exist
-    returns a tuple of list(domains) and alias"""
+    returns a tuple of list(domains) and alias. The domains are the
+    instance description's when it declares any (spec_domains), else the
+    file's; dehydrated's file is made or backed up either way."""
     if not isfile(domain_path):
         copyfile(d_dom_example, domain_path)
-        return [example_domain, "", "", "", ""], None
+        domains, alias = [example_domain], None
     else:
         backup_domain_path = ".".join([domain_path, "bak"])
         copyfile(domain_path, backup_domain_path)
@@ -131,11 +153,37 @@ def load_domains() -> tuple[list[str], str | None]:
                     break
         if alias:
             alias = alias.strip()
-        while len(domains) > 5:
-            domains.pop()
-        while len(domains) < 5:
-            domains.append("")
-        return domains, alias
+    domains = spec_domains() or domains
+    while len(domains) > 5:
+        domains.pop()
+    while len(domains) < 5:
+        domains.append("")
+    return domains, alias
+
+
+def record_domains(values: list[str]) -> str:
+    """Write the confirmed domains into the description, acme enabled;
+    what to tell the operator, or "" when there is nothing to say
+
+    A wildcard (DNS-01) is left out, since keel's validation has no field
+    it fits yet, and said so; with nothing else confirmed the description
+    is not written at all.
+    """
+    path = keelcli.spec_path()
+    domains, wildcards = keelcli.recordable_domains(values)
+    if not domains:
+        return keelcli.ACME_NOTHING_RECORDED.format(
+            path=path, wildcards=", ".join(wildcards))
+    document, problem = keelcli.load_description(path)
+    if not problem:
+        problem = keelcli.save_acme(path, document, domains)
+    if problem:
+        return keelcli.ACME_UNCHANGED.format(path=path, problem=problem)
+    if wildcards:
+        return keelcli.ACME_WILDCARDS.format(
+            path=path, wildcards=", ".join(wildcards),
+            recorded=", ".join(domains))
+    return ""
 
 
 def save_domains(domains: list[str], alias: str | None = None) -> None:
@@ -440,6 +488,9 @@ def run() -> None:
             text=True,
         )
         if proc.returncode == 0:
+            problem = record_domains(values)
+            if problem:
+                console.msgbox(SPEC_TITLE, problem, autosize=True)
             break
         else:
             console.msgbox("Error!", proc.stderr)

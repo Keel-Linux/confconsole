@@ -76,6 +76,31 @@ to do so will cause the Let's Encrypt challenges to fail (so you won't get a
 certificate). Repeated failures may cause your server to be blocked (for up to
 a week - perhaps longer) from further attempts.
 
+The instance description
+------------------------
+
+The domain boxes are prefilled from the instance description,
+``/etc/keel/instance.yaml`` (or ``$KEEL_SPEC``): ``tls.acme.domains``
+when it declares any, else ``instance.fqdn``, the name the first boot
+recorded (inithooks ``31fqdn``), else the first line of
+``/etc/dehydrated/confconsole.domains.txt`` as before, ``example.com`` on
+a fresh machine. A description that does not read counts as none.
+
+Once you have confirmed the domains and the certificate was issued, the
+description gets ``tls.acme.domains`` (the domains as confirmed, without
+blanks and without an alias) and ``tls.acme.enabled: true``, so ``keel
+spec apply --system`` and ``keel diff`` know the certificate this machine
+asked for; ``challenge`` and ``agree_tos`` are left as they were. It is
+written as every Instance screen writes it (``keelcli``): a copy beside
+the file, ``keel spec validate --no-secret-files`` on it, then moved into
+place, and a description keel refuses, or a machine without keel, is said
+on the screen and the file is left as it was. A request that fails writes
+nothing to the description. A wildcard (DNS-01) is left out of the
+description and said so on the screen: keel's domain validation has no
+field a wildcard fits yet, and with nothing but wildcards confirmed the
+description is not written. dehydrated keeps reading
+``confconsole.domains.txt``, which is written as before.
+
 Getting a certificate - Behind the scenes
 -----------------------------------------
 
