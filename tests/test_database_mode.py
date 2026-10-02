@@ -507,6 +507,22 @@ class TestTheForm:
         assert dbscreen.engine_of(console, "x", {}) == ""
         assert "No database server was found" in console.calls[-1][2]
 
+    def test_what_inspect_could_not_infer_elsewhere_is_not_shown(
+        self, keel, tmp_path, monkeypatch
+    ):
+        """The maintainer's screenshot 045: inspect wrote its spec, which
+        names no server, and said on stderr that another field (the fqdn)
+        was not inferred; that is not why there is no mode to choose"""
+        inspected = tmp_path / "inspected.yaml"
+        inspected.write_text(yaml.safe_dump({"version": 1}))
+        monkeypatch.setattr(dbscreen, "INSPECTED", str(inspected))
+        keel["answers"] = [(13, "", "Error: inspect: required fields not"
+                                    " inferred: instance.fqdn\n")]
+        console = FakeConsole()
+
+        assert dbscreen.engine_of(console, "x", {}) == ""
+        assert console.calls[-1][2] == dbscreen.NO_ENGINE
+
     def test_an_inspection_that_cannot_be_read_says_so(
         self, keel, tmp_path, monkeypatch
     ):

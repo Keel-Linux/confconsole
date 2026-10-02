@@ -1,3 +1,18 @@
+confconsole (2.2.3+keel11) trixie; urgency=low
+
+  * Database mode on a machine with no database server says only that:
+    the screen appended what keel inspect printed on stderr, which is about
+    other fields, so a Core that had no fully qualified name showed
+    "Error: inspect: required fields not inferred: instance.fqdn" under
+    the no-server text (the maintainer's screenshot 045).
+  * The verdict of a refused keel network confirm (exit 21) no longer says
+    the change reverts when its window ends: keel refuses for several
+    reasons, nothing waiting among them, as when another session had
+    confirmed the change already (screenshot 040). It now reads "not
+    confirmed: the reason is above", and keel's own line says which.
+
+ -- Marcos Méndez <mendez.foto@gmail.com>  Fri, 02 Oct 2026 06:00:00 +0000
+
 confconsole (2.2.3+keel10) trixie; urgency=low
 
   * Every screen names Keel Linux. The backtitle read "TurnKey GNU/Linux

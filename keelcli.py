@@ -68,8 +68,10 @@ COMMAND_MESSAGES = {
     },
     "confirm": {
         OK: "confirmed: the network change stays",
-        NETWORK_NOT_CONFIRMED: "not confirmed: the change reverts when its"
-        " window ends unless a new session confirms it",
+        # keel refuses for several reasons, nothing waiting among them
+        # (another session may have confirmed it already), so the verdict
+        # repeats none of them and points at keel's own line
+        NETWORK_NOT_CONFIRMED: "not confirmed: the reason is above",
     },
     "key": {
         OK: "this node's public key; the private key never leaves the"
