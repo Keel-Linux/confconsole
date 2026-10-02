@@ -319,6 +319,26 @@ api_key: skip`, a key file reference) to a real `keel spec validate`.
 lose the TKLBAM and TurnKey Hub footer and gain one that checks neither
 is shown and that the screen runs no command.
 
+## Measured on 2026-10-01 with the maintainer's art in tiers
+
+| File | Tests | Stmts | Branches | Cover |
+|------|-------|-------|----------|-------|
+| keelbanner.py | 92 in tests/test_keelbanner.py, up from 60: the tiers wide, full, small and none by width and by height on synthetic block character marks, the locale (LC_ALL, LC_CTYPE, LANG, spelled every way glibc accepts, and an empty setting skipped), the two ladders and their paths, `available` (the backtitle and the shadow, measured with dialog on trixie), `text_rows` (dialog's wrap of a real IPv6 usage line), `box_width`, and `read` of a UTF-8 file and of one that is not | 80 | 22 | 100 percent, 0 missed, 0 partial |
+| confconsole.py | `TestUsageMark` has 12, up from 8: the box never taller than the room, 80 by 24 dual stack keeping the screen whole, the UTF-8 ladder in a UTF-8 locale, the wide mark widening the box, and the C locale never drawing a UTF-8 mark | | | not measured, see above; `usage` and `Console.msgbox` have 0 missed lines |
+
+Total 682 tests with a keel 0.11 at hand (677 passed and 5 skipped
+without one), 100 percent over the measured package, unchanged.
+Threshold in the caller: 100, unchanged.
+
+The tier is chosen from the room the dialog has, not from the terminal:
+dialog centres the box on the whole screen, so the backtitle costs four
+rows and the shadow four columns, and the box needs its text, wrapped as
+dialog wraps it, and five rows of frame, the blank row
+`Console._wrapper` puts above the text, and the button. The 25 row floor
+of the first version is gone: on 80 by 24 a 20 row box is what fits, so
+the small mark goes above a usage text of up to seven rows, and a dual
+stack usage screen keeps no mark.
+
 ## Plan to reach 90 percent per file
 
 Priority order (size: small under 30 lines of test, medium under 150,
