@@ -89,8 +89,26 @@ def _install_dialog_stubs():
         sys.modules["systemd.journal"] = journal
 
 
+def _install_requests_stub():
+    """The Let's Encrypt screen imports requests (python3-requests) to
+    read the terms of service; the tests replace its `get`, so a host
+    without the package gets a module with that one name, which refuses
+    to be called for real."""
+    try:
+        importlib.import_module("requests")
+    except ModuleNotFoundError:
+        stub = types.ModuleType("requests")
+
+        def get(url, **kwargs):
+            raise AssertionError(f"requests.get({url!r}) must be replaced")
+
+        stub.get = get
+        sys.modules["requests"] = stub
+
+
 _install_netinfo_stub()
 _install_dialog_stubs()
+_install_requests_stub()
 
 
 @pytest.fixture

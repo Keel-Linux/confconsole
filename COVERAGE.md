@@ -10,6 +10,28 @@ previous tip a2d9f70 (2025-10-02) was 50 commits behind and lacked the
 IPv6-aware rewrite of `ifutil.py` (upstream pull request #109), which is
 the file the static IPv6 work starts from.
 
+## Branch feat/lets-encrypt-from-the-spec: 100 percent kept (2026-10-02)
+
+The Let's Encrypt screen reads and writes the instance description.
+`keelcli.py` gains `acme_domains`, `bare_domains`, `recordable_domains`,
+`with_acme` and `save_acme` (414 statements, 84 branches, 100 percent) and
+stays in the measured set. `tests/test_lets_encrypt.py` (35 tests) loads
+`plugins.d/Lets_Encrypt/get_certificate.py` the way confconsole does, with
+the fake console, requests, dehydrated-wrapper and keel replaced: the
+domains a description offers, the writer accepting and refusing (keel
+refusing, keel absent, a file that cannot be staged or replaced), the
+prefill (declared domains, the fqdn, more than five, the file and its
+alias, a fresh machine, a description that does not read), the screen
+recording an issued certificate and writing nothing on a failed request, a
+refusal shown with keel's words, a wildcard left out of the description
+and said so (alone, recording nothing), a cancelled form, and the form
+text held to an 80x24 console with the five boxes under it. 864 passed, 7
+skipped,
+total 100. Measured on its own (`--source=plugins.d/Lets_Encrypt`), the
+screen is at 61 percent: every line this branch adds runs, what is left
+is the DNS-01 flow and the alias handling the tests do not reach, so the
+file does not join the gate yet.
+
 ## Baseline: 0 percent measured
 
 There is no `tests/` directory, no pytest or unittest suite and no

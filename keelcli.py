@@ -588,6 +588,98 @@ def promote_text(result: Result) -> str:
     )
 
 
+# --- the Let's Encrypt screen ----------------------------------------------
+#
+# The screen is driven by the description: its boxes are prefilled with
+# tls.acme.domains, else instance.fqdn (what the first boot recorded), and
+# the domains the operator confirmed are written back, with acme turned on,
+# once the certificate was issued. Nothing here opens a dialog or touches
+# dehydrated's files.
+
+ACME_UNCHANGED = (
+    "The certificate was issued, but {path} was NOT changed: the next"
+    " keel spec apply --system will not know about it.\n\n{problem}"
+)
+# keel's domain validation takes labels of letters, digits and dashes
+# (keel.spec.fields.LABEL_RE), so a wildcard has no field it fits yet
+ACME_WILDCARDS = (
+    "The certificate was issued. {wildcards}: a wildcard is not recorded"
+    " in {path}, which has no field it fits yet, so keel spec apply"
+    " --system will not know about it. Recorded: {recorded}."
+)
+ACME_NOTHING_RECORDED = (
+    "The certificate was issued, but nothing was recorded in {path}:"
+    " {wildcards} is a wildcard, and the description has no field it fits"
+    " yet, so keel spec apply --system will not know about it."
+)
+
+
+def acme_domains(document: dict) -> list[str]:
+    """The domains the description offers: tls.acme.domains when it
+    declares any, else instance.fqdn, else none"""
+    tls = document.get("tls")
+    acme = tls.get("acme") if isinstance(tls, dict) else None
+    domains = acme.get("domains") if isinstance(acme, dict) else None
+    if isinstance(domains, list) and domains:
+        return [str(domain) for domain in domains]
+    instance = document.get("instance")
+    fqdn = instance.get("fqdn") if isinstance(instance, dict) else None
+    return [str(fqdn)] if fqdn else []
+
+
+def bare_domains(values: list[str]) -> list[str]:
+    """The domains of the boxes, without blanks and without the alias
+    dehydrated's file carries after `>`"""
+    found = [value.split(">", 1)[0].strip() for value in values]
+    return [domain for domain in found if domain]
+
+
+def recordable_domains(values: list[str]) -> tuple[list[str], list[str]]:
+    """The domains of the boxes the description can hold, and the
+    wildcards it cannot: (recorded, wildcards)"""
+    domains = bare_domains(values)
+    return ([one for one in domains if "*" not in one],
+            [one for one in domains if "*" in one])
+
+
+def with_acme(document: dict, domains: list[str]) -> dict:
+    """A new description declaring `domains` with acme enabled; the
+    rest of tls.acme (challenge, agree_tos) is kept. A copy, never an
+    edit in place, as with_server."""
+    tls = document.get("tls")
+    tls = dict(tls) if isinstance(tls, dict) else {}
+    acme = tls.get("acme")
+    acme = dict(acme) if isinstance(acme, dict) else {}
+    acme["domains"] = list(domains)
+    acme["enabled"] = True
+    return {**document, "tls": {**tls, "acme": acme}}
+
+
+def save_acme(path: str, document: dict, domains: list[str]) -> str:
+    """Write tls.acme.domains and tls.acme.enabled: true; the problem or ""
+
+    Staged and validated before anything replaces the description, as
+    every Instance screen does it.
+    """
+    staged, problem = stage_spec(with_acme(document, domains), path)
+    if problem:
+        return problem
+    try:
+        result = call(["spec", "validate", "--no-secret-files", "--spec",
+                       staged])
+    except KeelNotInstalled as error:
+        discard_spec(staged)
+        return str(error)
+    if result.code != OK:
+        discard_spec(staged)
+        return invalid_text(path, result)
+    problem = commit_spec(staged, path)
+    if problem:
+        discard_spec(staged)
+        return f"{path} was NOT changed.\n\n{problem}"
+    return ""
+
+
 # --- what a replica needs, and the credential both ends hold -------------
 #
 # The primary's screen hands the operator what each replica's screen will

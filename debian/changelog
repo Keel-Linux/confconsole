@@ -1,3 +1,23 @@
+confconsole (2.2.3+keel14) trixie; urgency=low
+
+  * The Let's Encrypt screen is driven by the instance description. Its
+    domain boxes are prefilled from tls.acme.domains, else instance.fqdn
+    (the name the first boot now records, inithooks 31fqdn), else from
+    dehydrated's domains file as before, example.com on a fresh machine.
+    Once the operator confirms the domains and the certificate is issued,
+    /etc/keel/instance.yaml gets tls.acme.domains and tls.acme.enabled:
+    true, written as every Instance screen writes it (keelcli: staged,
+    keel spec validate, moved into place; a refusal is shown and the file
+    left as it was). A request that fails writes nothing to it. dehydrated
+    keeps reading its own domains file, written as before; HTTP-01 and
+    DNS-01 are unchanged. A wildcard is left out of the description and
+    said so, since keel's domain validation has no field it fits yet.
+  * The screen's text fits an 80x24 console with the five boxes under it:
+    it was eleven rows, and a test now holds it to the room a 24 row
+    console leaves.
+
+ -- Marcos Mendez <mendez.foto@gmail.com>  Fri, 02 Oct 2026 21:30:00 +0000
+
 confconsole (2.2.3+keel13) trixie; urgency=low
 
   * The first boot role screen does not run keel inspect on a machine
