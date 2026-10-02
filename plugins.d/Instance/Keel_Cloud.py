@@ -1,4 +1,4 @@
-"""Keel Cloud: this node's API key, optional (handbook decision 0020)"""
+"""This node's Keel Cloud API key, optional"""
 
 import keelfirstboot
 

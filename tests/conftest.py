@@ -359,3 +359,68 @@ def screen(monkeypatch):
         return loaded, console
 
     return _load
+
+
+# --- the manifest of the machine (test_keelmenu, test_instance_menu)
+
+CORE = ["installer", "wireguard", "etcd", "crowdsec"]
+WEB = CORE + ["nginx", "coraza", "anubis"]
+
+
+def overlay(name, engine=None):
+    manifest = {"name": name}
+    if engine:
+        manifest["provides"] = {"engine": engine}
+    return types.SimpleNamespace(name=name, manifest=manifest)
+
+
+def resolved(overlays, services=None):
+    application = None
+    if services is not None:
+        application = types.SimpleNamespace(item={"services": services})
+    return types.SimpleNamespace(overlays=tuple(overlays),
+                                 application=application)
+
+
+@pytest.fixture
+def chains(monkeypatch):
+    """keel.manifest.facts.gather over the chains a test puts here"""
+    table = {}
+    asked = []
+
+    def gather(root, name):
+        asked.append((root, name))
+        found = table.get(name)
+        if isinstance(found, Exception):
+            raise found
+        return types.SimpleNamespace(resolved=found)
+
+    package = types.ModuleType("keel")
+    manifest = types.ModuleType("keel.manifest")
+    facts = types.ModuleType("keel.manifest.facts")
+    facts.gather = gather
+    package.manifest = manifest
+    manifest.facts = facts
+    monkeypatch.setitem(sys.modules, "keel", package)
+    monkeypatch.setitem(sys.modules, "keel.manifest", manifest)
+    monkeypatch.setitem(sys.modules, "keel.manifest.facts", facts)
+    table["core"] = resolved(overlay(name) for name in CORE)
+    table["web"] = resolved(overlay(name) for name in WEB)
+    table["mariadb"] = resolved(
+        [overlay(name) for name in CORE] + [overlay("mariadb", "mariadb")])
+    table["wordpress"] = resolved(
+        [overlay(name) for name in WEB] + [overlay("mariadb", "mariadb")],
+        services={"db": {"engine": "mariadb"}})
+    table["asked"] = asked
+    return table
+
+
+@pytest.fixture
+def cloud(tmp_path_factory, monkeypatch):
+    """The Keel Cloud flag, off until a test writes it"""
+    import keelmenu
+
+    # outside tmp_path, where the spec is: tests list that directory
+    flag = tmp_path_factory.mktemp("keel-cloud") / "cloud-endpoint"
+    monkeypatch.setattr(keelmenu, "CLOUD_ENDPOINT", str(flag))
+    return flag

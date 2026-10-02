@@ -32,6 +32,7 @@ import ipaddr
 import ifutil
 import conf
 import keelbanner
+import keelfit
 import plugin
 
 from typing import NoReturn, Iterable, Mapping, Any
@@ -213,6 +214,11 @@ class Console:
         if title:
             self.console.add_persistent_args(["--backtitle", title])
 
+    def _box(self) -> tuple[int, int]:
+        """The usual box, no larger than the terminal leaves: on 24 rows
+        25 drew over the backtitle"""
+        return keelfit.box(self.height, self.width, keelfit.room())
+
     def _handle_exitcode(self, retcode: str) -> bool:
         if retcode == "esc":
             text = "Do you really want to quit?"
@@ -267,7 +273,7 @@ class Console:
     def yesno(self, text: str, autosize: bool = False) -> str:
         if autosize:
             text += "\n "
-            height, width = 0, 0
+            height, width = keelfit.text_box(text, keelfit.room())
         else:
             height, width = 10, 30
         v = self._wrapper("yesno", text, height, width)
@@ -287,8 +293,12 @@ class Console:
         # more than the usual text, such as the usage screen with the mark
         # above it.
         if autosize:
+            # sized to the text and the terminal (keelfit), where dialog's
+            # own autosize drew over the backtitle on 24 rows
             text += "\n "
-            height, width = 0, 0
+            height, width = keelfit.text_box(text, keelfit.room())
+        elif height is None and width is None:
+            height, width = self._box()
         else:
             height, width = height or self.height, width or self.width
 
@@ -307,11 +317,12 @@ class Console:
         cancel_label: str = "Cancel",
     ) -> tuple[str, str]:
         no_cancel = True if cancel_label == "" else False
+        height, width = self._box()
         v = self._wrapper(
             "inputbox",
             text,
-            self.height,
-            self.width,
+            height,
+            width,
             title=title,
             init=init,
             ok_label=ok_label,
@@ -332,14 +343,23 @@ class Console:
         # default_item: the choice highlighted when the menu opens, such
         # as the role a node already has; dialog's first one otherwise
         extra = {} if default_item is None else {"default_item": default_item}
+        # as wide as the widest line, up to the terminal; a description
+        # is shortened, with an ellipsis, only when even that is too
+        # narrow (keelfit), never cut at the border by dialog
+        space = keelfit.room()
+        height, width = keelfit.box(
+            self.height,
+            keelfit.menu_width(choices, self.width, space[1], text),
+            space,
+        )
         v = self._wrapper(
             "menu",
             text,
-            self.height,
-            self.width,
+            height,
+            width,
             menu_height=len(choices) + 1,
             title=title,
-            choices=choices,
+            choices=keelfit.fit_choices(choices, width),
             no_cancel=no_cancel,
             **extra,
         )
@@ -359,7 +379,7 @@ class Console:
             text += "\n "
             height, width = 0, 0
         else:
-            height, width = self.height, self.width
+            height, width = self._box()
         v = self._wrapper(
             "form",
             text,

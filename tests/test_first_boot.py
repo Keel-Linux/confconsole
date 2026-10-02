@@ -35,6 +35,14 @@ ENTRY = (Path(__file__).resolve().parent.parent / "plugins.d" / "Instance"
          / "Keel_Cloud.py")
 
 
+@pytest.fixture(autouse=True)
+def cloud_on(cloud):
+    """Keel Cloud available, so its screens are the ones under test; the
+    tests of the gate turn it off again"""
+    cloud.write_text("https://cloud.example\n")
+    return cloud
+
+
 @pytest.fixture
 def keel(monkeypatch):
     """Replace keelcli.call; `answers` steer it by the command's first
@@ -562,6 +570,23 @@ class TestPrimaryAndReplica:
         assert steps["screens"] == []
         assert "Overlay network" in boxes(console)[0][2]
 
+    @pytest.mark.parametrize("mode, where", [
+        ("simple", "Advanced > Overlay network: this node's address"),
+        ("cloud_simple", "  Overlay network: this node's address"),
+    ])
+    def test_later_names_where_the_overlay_screen_is_in_this_mode(
+        self, spec, steps, chains, mode, where
+    ):
+        # in a simple installation the overlay is behind Advanced
+        spec({"version": 1, "appliance": {"name": "mariadb"},
+              "installation": {"mode": mode}})
+        steps["overlay"] = None
+        console = FakeConsole()
+
+        keelfirstboot.primary(console, str(spec.path), {}, {}, "mariadb")
+
+        assert where in boxes(console)[0][2]
+
 
 class TestFinish:
     def test_the_role_in_the_description_is_done(self, spec):
@@ -907,6 +932,63 @@ class TestTheCloudKey:
         loaded.run()
 
         assert "not valid YAML" in boxes(console)[0][2]
+
+
+class TestUntilKeelCloudExists:
+    """Hidden by default: nobody can generate a key for a service that
+    does not exist yet (the maintainer, step 8 review). keelmenu's
+    CLOUD_ENDPOINT turns it on; until then nothing is asked or stored."""
+
+    @pytest.fixture
+    def steps(self, monkeypatch, cloud_on):
+        cloud_on.unlink()
+        ran = []
+        monkeypatch.setattr(keelfirstboot, "STEPS", {
+            "role": lambda *args: ran.append(("role", *args)),
+            "cloud": lambda *args: ran.append(("cloud", *args)),
+        })
+        monkeypatch.setattr(keelfirstboot, "make_console", lambda: "console")
+        monkeypatch.setattr(keelfirstboot, "draw_on_terminal", lambda: True)
+        return ran
+
+    @pytest.mark.parametrize("environ", [
+        {}, {"_TURNKEY_INIT": "1"}, {"HUB_APIKEY": "KEY123"},
+    ])
+    def test_the_first_boot_asks_and_stores_no_key(
+        self, keel, spec, steps, key_file, capsys, environ
+    ):
+        spec({"version": 1})
+
+        assert keelfirstboot.main(["cloud"], environ) == 0
+
+        assert steps == []
+        assert keel["calls"] == []
+        assert not key_file.exists()
+        assert read(spec.path) == {"version": 1}
+        assert "Keel Cloud is not available" in capsys.readouterr().err
+
+    def test_the_role_is_still_asked(self, keel, spec, steps):
+        spec({"version": 1})
+
+        keelfirstboot.main(["role"], {})
+
+        assert [one[0] for one in steps] == ["role"]
+
+    def test_the_entry_run_by_name_says_so_and_asks_nothing(
+        self, keel, spec, key_file, cloud_on
+    ):
+        cloud_on.unlink()
+        spec({"version": 1})
+        loaded = plugin.Plugin(str(ENTRY))
+        console = FakeConsole()
+        loaded.updateGlobals({"console": console})
+
+        loaded.run()
+
+        assert keel["calls"] == []
+        (_, title, text), = boxes(console)
+        assert title == keelfirstboot.CLOUD_TITLE
+        assert "not available" in text
 
 
 @pytest.mark.skipif(keel_with_overlay() is None,

@@ -11,6 +11,49 @@ makes a headless run and a menu run equivalent.
 The spec file is ``/etc/keel/instance.yaml``, or ``$KEEL_SPEC`` when that
 variable is set, the same default the command uses.
 
+Which screens a machine shows
+-----------------------------
+
+The menu offers a screen only where what it configures is part of the
+appliance (handbook decision 0041). ``keelmenu.py`` asks keel to resolve
+the appliance the spec names (``appliance.name``) along its chain of
+manifests under ``/usr/share/keel``, the same resolution as ``keel
+manifest show NAME --resolved``, and reads ``installation.mode`` from the
+spec.
+
++-------------------+--------------------------------------------------------+
+| Entry             | Offered when                                           |
++===================+========================================================+
+| View, Apply,      | always                                                 |
+| Show drift,       |                                                        |
+| Export spec       |                                                        |
++-------------------+--------------------------------------------------------+
+| Database mode     | a ``mariadb`` or ``postgresql`` data service is in the |
+|                   | chain: an overlay that provides the engine, or a       |
+|                   | service the application consumes. Not on Keel Core or  |
+|                   | Keel Web                                               |
++-------------------+--------------------------------------------------------+
+| Overlay network   | the ``wireguard`` overlay is in the chain. In the menu |
+|                   | in ``cloud_simple`` and ``cloud_advanced``, or once    |
+|                   | the spec enables or configures the overlay; otherwise  |
+|                   | behind **Advanced**                                    |
++-------------------+--------------------------------------------------------+
+| Keel Cloud        | only once Keel Cloud exists: ``/etc/keel/cloud-        |
+|                   | endpoint`` holds the service's endpoint. Hidden by     |
+|                   | default, and the first boot (``keelfirstboot.py        |
+|                   | cloud``, run by inithooks' ``80keel-cloud``) asks no   |
+|                   | key either. Writing that file turns both on            |
++-------------------+--------------------------------------------------------+
+
+When the chain cannot be read (keel or the manifests missing, as on a
+machine of before 0041, or a spec that names no appliance) the screens are
+offered as before, the overlay behind Advanced.
+
+Every menu is as wide as its widest line, up to what the terminal leaves
+(``keelfit.py``), and no box is taller than the terminal; a description
+is shortened with an ellipsis only when even the full width is too
+narrow. The Keel screens' own descriptions fit an 80 column console.
+
 Entries and their headless equivalents
 --------------------------------------
 
@@ -78,11 +121,12 @@ key pair the first time, on this machine, and prints only the public key.
 Then:
 
 Address
-  This node's overlay address and port. The first time, the field holds
-  what ``keel network wireguard suggest-address`` prints: a random unique
-  local address (``fd00::/8``), ``::1`` on its /64. The other nodes take
-  ``::2``, ``::3`` on the same /64. The other entries appear once there
-  is an address.
+  This node's address on Keel's private mesh, not an address on the LAN,
+  and the UDP port the other nodes reach it on. The first time, the field
+  holds what ``keel network wireguard suggest-address`` prints: a randomly
+  generated unique local address (``fd00::/8``), ``::1`` on its /64. The
+  first node keeps it; the other nodes take ``::2``, ``::3`` on the same
+  /64. The other entries appear once there is an address.
 
 Add peer
   Another node, as its own screen shows it: its public key, its overlay

@@ -215,15 +215,32 @@ def summary(document: dict) -> str:
     return f"diff: {', '.join(parts)}; {verdict}"
 
 
-def render_diff(text: str) -> list[str]:
-    """Lines for the JSON document ``keel diff --format json`` prints.
+def stacked(rows: list[tuple[str, str, str, str]]) -> list[str]:
+    """The rows two lines a field, for a box the table does not fit:
+    the field and its status, then the values, once when they agree."""
+    lines = []
+    for field, status, declared, observed in rows:
+        lines.append(f"{field}: {status}")
+        if declared == observed:
+            lines.append(f"    {declared}")
+        else:
+            lines.append(f"    declared {declared}, observed {observed}")
+    return lines
+
+
+def render_diff(text: str, width: int | None = None) -> list[str]:
+    """Lines for the JSON document ``keel diff --format json`` prints:
+    a table, or two lines a field when the table is wider than `width`.
 
     Raises ValueError when ``text`` is not that document."""
     document = json.loads(text)
     if not isinstance(document, dict) or "fields" not in document:
         raise ValueError("not a keel diff document")
-    rows = [DIFF_HEADER, *diff_rows(document["fields"])]
-    return [*align(rows), "", summary(document)]
+    rows = diff_rows(document["fields"])
+    lines = align([DIFF_HEADER, *rows])
+    if width is not None and max(len(line) for line in lines) > width:
+        lines = stacked(rows)
+    return [*lines, "", summary(document)]
 
 
 def view_text(path: str, spec: str, result: Result) -> str:
@@ -243,10 +260,11 @@ def apply_text(result: Result) -> str:
     )
 
 
-def drift_text(result: Result) -> str:
-    """The Show drift screen: the table when there is one, else the text."""
+def drift_text(result: Result, width: int | None = None) -> str:
+    """The Show drift screen: the table when there is one, else the text;
+    `width` is what a line has inside the box."""
     try:
-        lines = render_diff(result.stdout)
+        lines = render_diff(result.stdout, width)
     except ValueError:
         lines = [result.output]
     return "\n".join([*lines, "", describe_exit("diff", result.code)])

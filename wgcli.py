@@ -42,11 +42,11 @@ WAITING = "waiting for its confirmation"
 STILL_ARMED = "the revert timer will try again"
 NO_ADDRESS = "(none yet: choose Address first)"
 THIS_NODE = (
-    "This screen configures THIS node's side of the overlay only. On the"
-    " other node, open this screen too and add this node as its peer:"
-    " this node's public key, its overlay address, and the address and"
-    " port it can be reached at."
+    "This screen sets THIS node's side only. On each other node, add this"
+    " node as a peer: its public key, mesh address and endpoint."
 )
+# the peers the first screen lists before it says how many more there are
+LISTED = 3
 CONFIRM_HOW = (
     "The change REVERTS BY ITSELF when its window ends (120 seconds unless"
     " apply was told otherwise) unless it is confirmed. Confirm from a NEW"
@@ -164,35 +164,46 @@ def without_peer(wireguard: dict, public_key: str) -> dict:
     return {**wireguard, "peers": kept}
 
 
-def peer_line(peer: dict) -> str:
-    """How a peer is shown: its addresses and where it is reached"""
-    routed = ", ".join(str(one) for one in peer.get("allowed_ips") or [])
-    endpoint = peer.get("endpoint") or "reaches this node itself"
-    return f"{routed or '-'} at {endpoint}"
+def routed(peer: dict) -> str:
+    """The addresses a peer routes, which name it on the overlay"""
+    return ", ".join(str(one) for one in peer.get("allowed_ips") or []) or "-"
 
 
 def peer_choices(wireguard: dict) -> list[tuple[str, str]]:
-    """The remove menu: the key is the tag, the addresses the text"""
-    return [(str(peer.get("public_key", "?")), peer_line(peer))
+    """The remove menu: the key is the tag, the routed addresses the text
+
+    No endpoint: a 44 column key beside it did not fit an 80 column
+    console. View spec shows the endpoints.
+    """
+    return [(str(peer.get("public_key", "?")), routed(peer))
             for peer in peers(wireguard)]
 
 
 def overlay_text(public_key: str, wireguard: dict) -> str:
-    """The first screen: this node, then its peers, then what it is for"""
+    """The first screen: this node, then its peers, then what it is for
+
+    One line a peer, and no more than LISTED of them when there are
+    more, so that the menu under the text keeps its rows on an 80x24
+    console; Remove peer lists every one.
+    """
     port = wireguard.get("listen_port") or DEFAULT_PORT
     lines = [
         f"This node's public key: {public_key}",
-        f"Overlay address: {wireguard.get('address') or NO_ADDRESS}",
-        f"Listen port: {port}",
+        "Mesh address (not your LAN):"
+        f" {wireguard.get('address') or NO_ADDRESS}  UDP port: {port}",
         "",
     ]
     found = peers(wireguard)
+    shown = found if len(found) <= LISTED else found[:LISTED - 1]
     if found:
         lines.append(f"Peers ({len(found)}):")
-        lines += [f"  {peer.get('public_key', '?')}\n    {peer_line(peer)}"
-                  for peer in found]
+        lines += [f"  {peer.get('public_key', '?')}  {routed(peer)}"
+                  for peer in shown]
     else:
         lines.append("No peer yet.")
+    if len(shown) < len(found):
+        lines.append(f"  and {len(found) - len(shown)} more: Remove peer"
+                     " lists every one")
     return "\n".join(lines + ["", THIS_NODE])
 
 

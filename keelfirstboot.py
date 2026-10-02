@@ -45,6 +45,7 @@ import sys
 import dbscreen
 import keelbanner
 import keelcli
+import keelmenu
 import plugin
 import wgcli
 import wgscreen
@@ -190,6 +191,11 @@ CLOUD_TEXT = (
     "The key takes effect once the Keel Cloud service exists; nothing on"
     " this appliance contacts any service now."
 )
+CLOUD_UNAVAILABLE = (
+    "Keel Cloud is not available yet: no key is asked, and this node runs"
+    " standalone. It is offered once " + keelmenu.CLOUD_ENDPOINT
+    + " names the service."
+)
 CLOUD_SAVED = "Saved: hub.api_key references {path} (root, mode 0600)."
 CLOUD_SKIPPED = "No Keel Cloud key: this node runs standalone."
 KEEP = "Keep"
@@ -251,6 +257,8 @@ def skip_reason(step: str, document: dict, environ) -> str:
     """Why a step is not asked, or "" when it is"""
     if not shutil.which(keelcli.KEEL):
         return keelcli.NOT_INSTALLED
+    if step == CLOUD and not keelmenu.cloud_available():
+        return CLOUD_UNAVAILABLE
     if environ.get(EXPLICIT_RUN):
         return ""
     if step == ROLE:
@@ -418,14 +426,14 @@ def overlay_choices(role: str, wireguard: dict) -> list[tuple[str, str]]:
     """An address first; a replica goes on only with its primary a peer"""
     later_choice = (LATER, "finish this in confconsole")
     if not wireguard.get("address"):
-        return [(wgscreen.ADDRESS, "this node's overlay address and port"),
+        return [(wgscreen.ADDRESS, "this node's mesh address and UDP port"),
                 later_choice]
     found = []
     if role == PRIMARY or wgcli.peers(wireguard):
         found.append((CONTINUE, "on to the database mode"))
     return found + [
         (wgscreen.ADD, "accept another node: its key, address, endpoint"),
-        (wgscreen.ADDRESS, "change this node's address or port"),
+        (wgscreen.ADDRESS, "change this node's mesh address or port"),
         later_choice,
     ]
 
@@ -449,7 +457,9 @@ def finish(console, path: str, role: str) -> None:
 def later(console, role: str, overlay_done: bool) -> None:
     lines = [LATER_TEXT]
     if not overlay_done:
-        lines.append(f"  {OVERLAY_WHERE}: this node's address and peers")
+        # behind Advanced in a simple installation, until it is in use
+        lines.append(f"  {keelmenu.overlay_where()}: this node's address"
+                     " and peers")
     lines.append(f"  {MODE_WHERE[role]}")
     if role == REPLICA:
         lines += ["", LATER_REPLICA]
@@ -463,7 +473,12 @@ def cloud_screen(console) -> None:
     """The Instance menu entry: the same screen as the first boot's
 
     keel is asked first, so nobody types a key that cannot be kept.
+    The menu hides the entry until Keel Cloud exists; run by name
+    (confconsole --plugin) it says so and asks nothing.
     """
+    if not keelmenu.cloud_available():
+        console.msgbox(CLOUD_TITLE, CLOUD_UNAVAILABLE, autosize=True)
+        return
     if dbscreen.call(console, CLOUD_TITLE, ["--version"]) is None:
         return
     path = keelcli.spec_path()

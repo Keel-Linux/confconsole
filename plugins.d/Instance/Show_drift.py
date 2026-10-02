@@ -1,6 +1,7 @@
 """Show drift between the spec and this machine"""
 
 import keelcli
+import keelfit
 
 TITLE = "Instance drift"
 
@@ -12,4 +13,5 @@ def run():
     except keelcli.KeelNotInstalled as error:
         console.msgbox(TITLE, str(error))
         return
-    console.msgbox(TITLE, keelcli.drift_text(result), autosize=True)
+    width = keelfit.text_width(keelfit.room())
+    console.msgbox(TITLE, keelcli.drift_text(result, width), autosize=True)

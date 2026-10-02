@@ -1,4 +1,4 @@
-"""Primary: other nodes may replicate from this one"""
+"""Other nodes replicate from this one"""
 
 import dbscreen
 import keelcli

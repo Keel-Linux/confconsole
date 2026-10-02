@@ -339,6 +339,21 @@ of the first version is gone: on 80 by 24 a 20 row box is what fits, so
 the small mark goes above a usage text of up to seven rows, and a dual
 stack usage screen keeps no mark.
 
+## Measured on 2026-10-02 with the menus the manifest decides
+
+| File | Tests | Stmts | Branches | Cover |
+|------|-------|-------|----------|-------|
+| keelmenu.py (new: which Keel screens a machine shows) | in tests/test_keelmenu.py: the chain's overlays and data engines from keel's resolution (replaced; two tests run keel's own where it is installed), an application's services, a chain keel cannot resolve or a keel that fails or is missing, the spec's appliance and mode and the overlay in use, Database mode, Overlay network and Keel Cloud placed for Core, Web, a MariaDB appliance and WordPress in each mode, the flag that turns Keel Cloud on, the Advanced menu and where the overlay screen is | 107 | 24 | 100 percent, 0 missed, 0 partial |
+| keelfit.py (new: box sizes) | in tests/test_keelfit.py: the room the terminal leaves, a box cut to it, a menu as wide as its widest choice or line of text, a message box sized to its text, an item shortened with an ellipsis only past the full width | 43 | 8 | 100 percent, 0 missed, 0 partial |
+| keelcli.py | as before plus the drift table stacked two lines a field when it is wider than the box | | | 100 percent, 0 missed, 0 partial |
+| keelfirstboot.py, wgcli.py, wgscreen.py, plugins.d/Instance | as before plus the Keel Cloud gate at first boot and run by name, the overlay screen in 24 rows, the mesh address wording, the Instance menu built for each appliance and every Keel menu fitting 80 columns | | | 100 percent, 0 missed, 0 partial |
+
+Total 796 tests with keel at hand (789 passed and 7 skipped without
+it), 100 percent over the measured package, which gains `keelfit` and
+`keelmenu`. Threshold in the caller: 100, unchanged.
+`tests/test_confconsole_boxes.py` holds `Console`'s sizes; confconsole.py
+stays unmeasured.
+
 ## Plan to reach 90 percent per file
 
 Priority order (size: small under 30 lines of test, medium under 150,
