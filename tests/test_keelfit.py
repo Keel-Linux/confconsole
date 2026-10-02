@@ -89,6 +89,21 @@ class TestTextBox:
         assert keelfit.text_box("ok", (20, 76)) == (
             1 + keelfit.BOX_CHROME, keelfit.MIN_TEXT_WIDTH)
 
+    def test_an_8_column_terminal_still_gets_a_box(self, monkeypatch):
+        # 8 columns leave 4 for a box, 0 for its text: text_rows was
+        # asked to wrap at 0, and a height of 0 made dialog autosize
+        monkeypatch.setattr(keelbanner, "terminal_size", lambda: (3, 8))
+        space = keelfit.room()
+
+        height, width = keelfit.text_box("a few words of text", space)
+
+        assert space == (0, 4)
+        assert (height, width) == (1, 4)
+        assert keelfit.box(20, 65, space) == (1, 4)
+
+    def test_a_text_too_wide_for_a_box_of_one_column_is_one_a_row(self):
+        assert keelfit.text_box("abc", (20, 4)) == (3 + keelfit.BOX_CHROME, 4)
+
     def test_the_text_width_inside_the_box(self):
         assert keelfit.text_width((20, 76)) == 72
 

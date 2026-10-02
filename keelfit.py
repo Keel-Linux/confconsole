@@ -37,7 +37,9 @@ def room() -> tuple[int, int]:
 def box(height: int, width: int, space: tuple[int, int]) -> tuple[int, int]:
     """`height` by `width`, cut to the `space` the terminal leaves"""
     rows, cols = space
-    return min(height, rows), min(width, cols)
+    # never 0 or less: dialog takes 0 as "size it yourself" and draws
+    # over the backtitle again
+    return max(1, min(height, rows)), max(1, min(width, cols))
 
 
 def text_width(space: tuple[int, int]) -> int:
@@ -54,8 +56,10 @@ def text_box(text: str, space: tuple[int, int]) -> tuple[int, int]:
     rows, cols = space
     longest = max(len(line) for line in text.split("\n"))
     width = min(cols, max(MIN_TEXT_WIDTH, longest + TEXT_CHROME))
-    needed = keelbanner.text_rows(text, width - TEXT_CHROME) + BOX_CHROME
-    return min(rows, needed), width
+    # a terminal of 8 columns leaves the text no column at all
+    inside = max(1, width - TEXT_CHROME)
+    needed = keelbanner.text_rows(text, inside) + BOX_CHROME
+    return box(needed, width, space)
 
 
 def _widths(choices: list[tuple[str, str]]) -> tuple[int, int]:
