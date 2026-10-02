@@ -12,6 +12,7 @@ import os
 import runpy
 import stat
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -374,6 +375,8 @@ class TestTheRole:
         self, keel, spec, flows, monkeypatch
     ):
         spec({"version": 1})
+        monkeypatch.setattr(keelfirstboot, "database_server_installed",
+                            lambda: True)
         monkeypatch.setattr(dbscreen, "observed_engine",
                             lambda: ("mariadb", "", ""))
         console = FakeConsole(menus=[("ok", "Primary")])
@@ -382,10 +385,29 @@ class TestTheRole:
 
         assert flows == [("primary", {}, "mariadb")]
 
+    def test_no_server_binary_means_no_role_and_no_keel_inspect(
+        self, keel, spec, flows, monkeypatch, capsys
+    ):
+        # 2026-10-02: keel inspect took 2 s on a Web container (8 s with a
+        # quarter of a CPU) to say what the missing server binary says
+        spec({"version": 1})
+        monkeypatch.setattr(keelfirstboot, "database_server_installed",
+                            lambda: False)
+        monkeypatch.setattr(dbscreen, "observed_engine", pytest.fail)
+        console = FakeConsole()
+
+        keelfirstboot.choose_role(console, str(spec.path), read(spec.path))
+
+        assert console.calls == []
+        assert flows == []
+        assert "no database server" in capsys.readouterr().err
+
     def test_a_machine_without_a_database_server_has_no_role_to_ask(
         self, keel, spec, flows, monkeypatch, capsys
     ):
         spec({"version": 1})
+        monkeypatch.setattr(keelfirstboot, "database_server_installed",
+                            lambda: True)
         monkeypatch.setattr(dbscreen, "observed_engine",
                             lambda: ("", "nothing", ""))
         console = FakeConsole()
@@ -405,6 +427,49 @@ class TestTheRole:
         keelfirstboot.choose_role(console, str(spec.path), read(spec.path))
 
         assert flows == []
+
+
+class TestTheServerBinaries:
+    """keel's own table says which binaries prove a server is installed"""
+
+    @pytest.fixture
+    def engines(self, monkeypatch):
+        """A keel.inspect.dbengines whose ENGINES name these patterns"""
+        def install(*patterns):
+            engine = type("Engine", (), {"server_binaries": patterns})
+            module = type(sys)("keel.inspect.dbengines")
+            module.ENGINES = (engine,)
+            for name in ("keel", "keel.inspect"):
+                monkeypatch.setitem(sys.modules, name, type(sys)(name))
+            monkeypatch.setitem(sys.modules, "keel.inspect.dbengines",
+                                module)
+        return install
+
+    def test_a_server_binary_present_is_installed(self, engines, tmp_path):
+        engines("usr/sbin/mariadbd", "usr/lib/postgresql/*/bin/postgres")
+        binary = tmp_path / "usr/lib/postgresql/17/bin/postgres"
+        binary.parent.mkdir(parents=True)
+        binary.touch()
+
+        assert keelfirstboot.database_server_installed(str(tmp_path))
+
+    def test_no_server_binary_is_not_installed(self, engines, tmp_path):
+        engines("usr/sbin/mariadbd", "usr/sbin/mysqld")
+
+        assert not keelfirstboot.database_server_installed(str(tmp_path))
+
+    def test_without_keel_s_table_keel_is_asked(self, monkeypatch, tmp_path):
+        monkeypatch.setitem(sys.modules, "keel.inspect.dbengines", None)
+
+        assert keelfirstboot.database_server_installed(str(tmp_path))
+
+    def test_a_table_of_another_shape_means_keel_is_asked(
+        self, engines, monkeypatch, tmp_path
+    ):
+        engines()
+        monkeypatch.delattr(sys.modules["keel.inspect.dbengines"], "ENGINES")
+
+        assert keelfirstboot.database_server_installed(str(tmp_path))
 
 
 class TestStandalone:
