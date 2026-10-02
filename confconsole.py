@@ -276,14 +276,16 @@ class Console:
         button_label: str = "ok",
         autosize: bool = False,
         height: int | None = None,
+        width: int | None = None,
     ) -> str:
-        # `height` overrides the default for a box that carries more than
-        # the usual text, such as the usage screen with the mark above it.
+        # `height` and `width` override the default for a box that carries
+        # more than the usual text, such as the usage screen with the mark
+        # above it.
         if autosize:
             text += "\n "
             height, width = 0, 0
         else:
-            height, width = height or self.height, self.width
+            height, width = height or self.height, width or self.width
 
         v = self._wrapper(
             "msgbox", text, height, width, title=title, ok_label=button_label
@@ -663,28 +665,38 @@ class TurnkeyConsole:
             f"Usage started - hostname: {hostname} ipv6: {ipv6_addr}"
             f" ip: {ip_addr}"
         )
-        # The mark above the usage text, when the terminal has room for
-        # it over and above the rows the screen already uses: the box
-        # grows by what the mark takes, so not one line of what the
-        # appliance already says is lost, and the mark is dropped to the
-        # small one and then to nothing before that happens. The mark is
-        # centred on the columns the box leaves inside its frame, the
-        # same width keelbanner measures it against; the usage text keeps
+        # The mark above the usage text, the largest tier (wide, full,
+        # small) the dialog has room for on this screen over and above
+        # the rows the text needs, so not one line of what the appliance
+        # already says is lost: a smaller tier, and then none, is taken
+        # before that happens. The UTF-8 tiers in a UTF-8 locale, the
+        # ASCII ones otherwise. The box widens to a mark wider than it
+        # and grows by the rows the mark takes; the mark is centred on the
+        # columns the box leaves inside its frame, the usage text keeps
         # its own left margin.
-        height = self.height
-        rows, cols = keelbanner.terminal_size()
-        cols = min(cols, self.width)
-        mark = keelbanner.choose(rows, cols, height)
+        height, width = self.height, self.width
+        room_rows, room_cols = keelbanner.available(
+            *keelbanner.terminal_size()
+        )
+        inside = keelbanner.inner_width(min(width, room_cols))
+        used = keelbanner.text_rows(text, inside) + keelbanner.BOX_CHROME
+        mark = keelbanner.choose(
+            room_rows, room_cols, used, keelbanner.marks(os.environ)
+        )
         if mark is not None:
-            centred = keelbanner.center(mark, keelbanner.inner_width(cols))
+            width = keelbanner.box_width(mark, width, room_cols)
+            centred = keelbanner.center(mark, keelbanner.inner_width(width))
             text = keelbanner.above(text, centred)
-            height += keelbanner.added_rows(mark)
+            height = max(
+                used + keelbanner.added_rows(mark), min(height, room_rows)
+            )
 
         retcode = self.console.msgbox(
             f"{hostname} appliance services",
             text,
             button_label=default_button_label,
             height=height,
+            width=width,
         )
 
         if retcode is not self.OK:

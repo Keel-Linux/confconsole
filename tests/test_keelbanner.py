@@ -367,8 +367,6 @@ class TestAnUnanticipatedSize:
         paths = (str(path),)
         tall = rows_for(rows, keelbanner)
         wide = cols + keelbanner.FRAME
-        # the room, not the floor under the usage screen, is what decides
-        assert tall - 1 >= keelbanner.MIN_ROWS
 
         # Act and Assert: it fits exactly, and neither one row nor one
         # column less leaves the usage text a line shorter
@@ -384,12 +382,28 @@ class TestRead:
     def test_a_missing_file_is_not_an_error(self, keelbanner, tmp_path):
         assert keelbanner.read(str(tmp_path / "absent")) is None
 
+    def test_reads_a_utf8_mark_whatever_the_locale(
+        self, keelbanner, tmp_path
+    ):
+        path = tmp_path / "banner-utf8.txt"
+        path.write_bytes("█ █\n▀▀▀\n".encode())
+
+        assert keelbanner.read(str(path)) == "█ █\n▀▀▀\n"
+
+    def test_a_file_that_is_not_utf8_is_skipped(self, keelbanner, tmp_path):
+        path = tmp_path / "banner.txt"
+        path.write_bytes(b"\xff\xfe#\n")
+
+        assert keelbanner.read(str(path)) is None
+
 
 class TestChoose:
-    def test_a_terminal_under_24_rows_gets_no_mark(self, keelbanner, marks):
-        rows = keelbanner.MIN_ROWS - 1
+    """`choose` is given the room the dialog has on the screen
+    (`available`), not the terminal, and the rows the box needs without
+    a mark."""
 
-        assert keelbanner.choose(rows, 80, USAGE_ROWS, marks) is None
+    def test_no_room_above_the_box_gets_no_mark(self, keelbanner, marks):
+        assert keelbanner.choose(USAGE_ROWS, 80, USAGE_ROWS, marks) is None
 
     def test_a_tall_terminal_gets_the_full_mark(self, keelbanner, marks):
         rows = rows_for(MARK_ROWS, keelbanner)
@@ -399,10 +413,9 @@ class TestChoose:
     def test_the_ladder_is_full_then_small_then_none_as_it_shrinks(
         self, keelbanner, marks
     ):
-        # Arrange: the shortest terminal each mark needs
+        # Arrange: the shortest room each mark needs
         full = rows_for(MARK_ROWS, keelbanner)
         small = rows_for(SMALL_ROWS, keelbanner)
-        assert small - 1 >= keelbanner.MIN_ROWS
 
         # Act
         ladder = [
@@ -425,10 +438,31 @@ class TestChoose:
         assert keelbanner.choose(rows, cols, USAGE_ROWS, marks) == MARK_SMALL
         assert keelbanner.choose(rows, cols - 1, USAGE_ROWS, marks) is None
 
-    def test_an_80_by_24_terminal_keeps_the_usage_screen_whole(
+    def test_an_80_by_24_terminal_keeps_a_25_row_box_whole(
         self, keelbanner, marks
     ):
-        assert keelbanner.choose(24, 80, USAGE_ROWS, marks) is None
+        rows, cols = keelbanner.available(24, 80)
+
+        assert keelbanner.choose(rows, cols, USAGE_ROWS, marks) is None
+
+    def test_the_paths_default_to_the_ladder_of_the_locale(
+        self, keelbanner, monkeypatch
+    ):
+        # Arrange: every mark installed, a UTF-8 locale
+        monkeypatch.setenv("LANG", "C.UTF-8")
+        monkeypatch.delenv("LC_ALL", raising=False)
+        monkeypatch.delenv("LC_CTYPE", raising=False)
+        installed = {path: MARK_SMALL for path in keelbanner.MARKS_UTF8}
+        installed.update({path: MARK for path in keelbanner.MARKS_ASCII})
+        rows = rows_for(MARK_ROWS, keelbanner)
+
+        # Act
+        chosen = keelbanner.choose(
+            rows, 80, USAGE_ROWS, reader=installed.get
+        )
+
+        # Assert: the UTF-8 ladder was read, and only it
+        assert chosen == MARK_SMALL
 
     def test_a_mark_that_is_not_installed_is_skipped(self, keelbanner):
         chosen = keelbanner.choose(
@@ -452,13 +486,182 @@ class TestChoose:
 
         assert chosen is None
 
-    def test_the_default_paths_are_the_ones_the_overlay_installs(
+    def test_the_paths_are_the_ones_the_core_overlay_installs(
         self, keelbanner
     ):
-        assert keelbanner.MARKS == (
+        assert keelbanner.MARKS_UTF8 == (
+            "/etc/keel/banner-wide.txt",
+            "/etc/keel/banner-utf8.txt",
+            "/etc/keel/banner-small-utf8.txt",
+        )
+        assert keelbanner.MARKS_ASCII == (
             "/etc/keel/banner.txt",
             "/etc/keel/banner-small.txt",
         )
+
+
+# Three synthetic tiers drawn in block characters, ragged, each smaller
+# than the one before in both directions: a stand-in for the wide, the
+# full and the small mark whose sizes are this file's own.
+TIER_WIDE = "\n".join(["█" * 40] * 6 + ["▀" * 9]) + "\n"
+TIER_FULL = "\n".join(["▒" * 12] * 5) + "\n"
+TIER_SMALL = "\n".join(["░" * 5] * 2) + "\n"
+TIERS = {"wide": TIER_WIDE, "full": TIER_FULL, "small": TIER_SMALL}
+
+
+class TestTiers:
+    """The largest tier the dialog has room for, in the order wide, full,
+    small, none, decided by width and by height alike."""
+
+    def ladder(self, keelbanner, rows, cols, used_rows=USAGE_ROWS):
+        chosen = keelbanner.choose(
+            rows, cols, used_rows, tuple(TIERS), TIERS.get
+        )
+        names = [name for name, mark in TIERS.items() if mark == chosen]
+        return names[0] if names else None
+
+    def test_a_block_character_is_one_column(self, keelbanner):
+        assert keelbanner.mark_size("██\n▀\n") == (2, 2)
+        assert keelbanner.mark_size(TIER_WIDE) == (7, 40)
+
+    def test_room_for_everything_takes_the_wide_tier(self, keelbanner):
+        rows = rows_for(7, keelbanner)
+
+        assert self.ladder(keelbanner, rows, 40 + keelbanner.FRAME) == "wide"
+
+    def test_one_column_short_of_the_wide_tier_takes_the_full_one(
+        self, keelbanner
+    ):
+        rows = rows_for(7, keelbanner)
+
+        assert self.ladder(keelbanner, rows, 40 + keelbanner.FRAME - 1) == (
+            "full"
+        )
+
+    def test_one_row_short_of_the_wide_tier_takes_the_full_one(
+        self, keelbanner
+    ):
+        rows = rows_for(7, keelbanner) - 1
+
+        assert self.ladder(keelbanner, rows, 200) == "full"
+
+    def test_then_the_small_tier_then_none(self, keelbanner):
+        assert self.ladder(keelbanner, 60, 12 + keelbanner.FRAME - 1) == (
+            "small"
+        )
+        assert self.ladder(keelbanner, rows_for(2, keelbanner), 200) == (
+            "small"
+        )
+        assert self.ladder(keelbanner, rows_for(2, keelbanner) - 1, 200) is (
+            None
+        )
+        assert self.ladder(keelbanner, 60, 5 + keelbanner.FRAME - 1) is None
+
+    def test_a_taller_usage_text_pushes_the_choice_down(self, keelbanner):
+        rows = rows_for(7, keelbanner)
+
+        assert self.ladder(keelbanner, rows, 200, USAGE_ROWS) == "wide"
+        assert self.ladder(keelbanner, rows, 200, USAGE_ROWS + 1) == "full"
+
+
+class TestLocale:
+    """dialog draws a character past ASCII only in a UTF-8 locale, so the
+    UTF-8 marks go with a UTF-8 locale and the ASCII ones with any
+    other. The locale is the one the dialog child inherits: LC_ALL, then
+    LC_CTYPE, then LANG."""
+
+    @pytest.mark.parametrize(
+        "environ",
+        [
+            {"LANG": "C.UTF-8"},
+            {"LANG": "en_US.utf8"},
+            {"LANG": "de_DE.UTF-8@euro"},
+            {"LANG": "C", "LC_CTYPE": "C.UTF-8"},
+            {"LANG": "C", "LC_ALL": "pt_BR.UTF-8"},
+        ],
+    )
+    def test_a_utf8_locale(self, keelbanner, environ):
+        assert keelbanner.is_utf8(environ) is True
+        assert keelbanner.marks(environ) == keelbanner.MARKS_UTF8
+
+    @pytest.mark.parametrize(
+        "environ",
+        [
+            {},
+            {"LANG": "C"},
+            {"LANG": "POSIX"},
+            {"LANG": "en_US.ISO-8859-1"},
+            {"LANG": "en_US.UTF-8", "LC_ALL": "C"},
+            {"LANG": "en_US.UTF-8", "LC_CTYPE": "C"},
+            {"LANG": "", "LC_ALL": "", "LC_CTYPE": ""},
+        ],
+    )
+    def test_any_other_locale(self, keelbanner, environ):
+        assert keelbanner.is_utf8(environ) is False
+        assert keelbanner.marks(environ) == keelbanner.MARKS_ASCII
+
+    def test_an_empty_setting_is_skipped_for_the_next(self, keelbanner):
+        environ = {"LC_ALL": "", "LC_CTYPE": "", "LANG": "C.UTF-8"}
+
+        assert keelbanner.is_utf8(environ) is True
+
+
+class TestAvailable:
+    """The room the dialog has on the screen. dialog centres a box on the
+    whole screen, so the backtitle and the rule under it at the top cost
+    the same rows at the bottom, and the shadow on the right the same
+    columns on the left."""
+
+    def test_the_screen_less_the_backtitle_and_the_shadow(self, keelbanner):
+        assert keelbanner.available(24, 80) == (
+            24 - keelbanner.SCREEN_ROWS,
+            80 - keelbanner.SCREEN_COLS,
+        )
+
+    def test_measured_on_dialog_at_80_by_24(self, keelbanner):
+        # A box of 20 rows is the tallest dialog draws clear of the
+        # backtitle on 24 rows, measured with dialog 1.3 on trixie.
+        assert keelbanner.available(24, 80) == (20, 76)
+
+    def test_never_negative(self, keelbanner):
+        assert keelbanner.available(2, 3) == (0, 0)
+
+
+class TestTextRows:
+    """The rows a text takes in a box whose inside is `width` wide: dialog
+    wraps a line longer than that at a space."""
+
+    def test_one_row_per_short_line(self, keelbanner):
+        assert keelbanner.text_rows("a\nbb\n\nccc", 10) == 4
+
+    def test_a_long_line_wraps_at_a_space(self, keelbanner):
+        assert keelbanner.text_rows("aaaa bbbb cccc", 9) == 2
+
+    def test_a_word_longer_than_the_width_is_broken(self, keelbanner):
+        assert keelbanner.text_rows("x" * 25, 10) == 3
+
+    def test_the_wrapped_usage_line_of_a_real_address(self, keelbanner):
+        line = (
+            "Admin:     https://[2804:710:d0:5:e0fc:fc60:e690:1c25]"
+            "/wp-admin/"
+        )
+
+        assert keelbanner.text_rows(line, 61) == 2
+        assert keelbanner.text_rows(line, len(line)) == 1
+
+
+class TestBoxWidth:
+    def test_a_mark_narrower_than_the_box_keeps_its_width(self, keelbanner):
+        assert keelbanner.box_width(TIER_SMALL, 65, 76) == 65
+
+    def test_a_wider_mark_widens_the_box_by_its_frame(self, keelbanner):
+        assert keelbanner.box_width(TIER_WIDE, 30, 76) == (
+            40 + keelbanner.FRAME
+        )
+
+    def test_never_wider_than_the_room(self, keelbanner):
+        assert keelbanner.box_width(TIER_WIDE, 65, 50) == 50
+        assert keelbanner.box_width(TIER_SMALL, 65, 50) == 50
 
 
 class TestAbove:

@@ -50,11 +50,45 @@ SMALL_MARK = "\n".join(["#" * SMALL_MARK_COLS] * SMALL_MARK_ROWS) + "\n"
 BOX_ROWS = 25
 BOX_COLS = 65
 
+# The rows of the usage text of an IPv6 only adapter: the IPv6 half of
+# DEFAULT_TEMPLATE, every line of which fits the box unwrapped.
+V6_TEXT_ROWS = 5
+
+
+def terminal_for(mark: str, text_rows: int = V6_TEXT_ROWS) -> tuple:
+    """The shortest terminal, 100 columns wide, whose dialog has room for
+    `mark` above a usage text of `text_rows` rows."""
+    rows = (
+        keelbanner.added_rows(mark)
+        + text_rows
+        + keelbanner.BOX_CHROME
+        + keelbanner.SCREEN_ROWS
+    )
+    return rows, 100
+
+
+# The rows of the dual stack text: both halves and the blank row between.
+DUAL_TEXT_ROWS = 11
+
 # A terminal with room for each mark above that box, and one too narrow
 # for either of them.
-TALL_TERMINAL = (BOX_ROWS + keelbanner.added_rows(FULL_MARK) + 5, 100)
-SHORT_TERMINAL = (BOX_ROWS + keelbanner.added_rows(SMALL_MARK), 100)
-NARROW_TERMINAL = (TALL_TERMINAL[0], SMALL_MARK_COLS + keelbanner.FRAME - 1)
+TALL_TERMINAL = (terminal_for(FULL_MARK, DUAL_TEXT_ROWS)[0] + 5, 100)
+SHORT_TERMINAL = terminal_for(SMALL_MARK)
+NARROW_TERMINAL = (
+    TALL_TERMINAL[0],
+    SMALL_MARK_COLS + keelbanner.FRAME + keelbanner.SCREEN_COLS - 1,
+)
+
+
+def box_height(mark: str, terminal: tuple, text_rows=V6_TEXT_ROWS) -> int:
+    """The height of the box with `mark` above the text: what the mark and
+    the text need, and never less than the box's own height when the
+    screen has room for it."""
+    room = terminal[0] - keelbanner.SCREEN_ROWS
+    needed = (
+        keelbanner.added_rows(mark) + text_rows + keelbanner.BOX_CHROME
+    )
+    return max(needed, min(BOX_ROWS, room))
 
 
 def indent_of(mark_cols: int) -> str:
@@ -312,6 +346,10 @@ def usage_env(confconsole, net_stubs, monkeypatch, tmp_path):
     # a test host has and what the screen looked like before the mark.
     state["terminal"] = (24, 80)
     state["marks"] = {}
+    # The C locale, so the ASCII ladder, unless a test says otherwise.
+    for name in ("LC_ALL", "LC_CTYPE"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("LANG", "C")
     monkeypatch.setattr(
         confconsole.keelbanner, "terminal_size", lambda: state["terminal"]
     )
@@ -323,8 +361,19 @@ def usage_env(confconsole, net_stubs, monkeypatch, tmp_path):
 
 
 def install_marks(state, full=FULL_MARK, small=SMALL_MARK):
-    """Put the two marks where the core overlay installs them."""
+    """Put the two ASCII marks where the core overlay installs them."""
     state["marks"] = {keelbanner.MARK: full, keelbanner.MARK_SMALL: small}
+
+
+def install_utf8_marks(state, wide, full, small):
+    """Put the three UTF-8 marks where the core overlay installs them, and
+    the two ASCII ones beside them, as the overlay does."""
+    install_marks(state)
+    state["marks"].update({
+        keelbanner.MARK_WIDE: wide,
+        keelbanner.MARK_UTF8: full,
+        keelbanner.MARK_SMALL_UTF8: small,
+    })
 
 
 def make_usage_console(tc, advanced=True):
@@ -481,9 +530,10 @@ class TestUsageMark:
         )
         assert lines[FULL_MARK_ROWS] == ""
         assert lines[FULL_MARK_ROWS + 1] == f"Web:       http://[{V6}]"
-        assert console.console.msgbox_kwargs["height"] == BOX_ROWS + (
-            keelbanner.added_rows(FULL_MARK)
+        assert console.console.msgbox_kwargs["height"] == box_height(
+            FULL_MARK, TALL_TERMINAL
         )
+        assert console.console.msgbox_kwargs["width"] == BOX_COLS
 
     def test_the_mark_is_centred_and_the_usage_text_stays_left_aligned(
         self, tc, usage_env
@@ -544,15 +594,40 @@ class TestUsageMark:
             SMALL_MARK_COLS, SMALL_MARK_ROWS
         )
         assert lines[SMALL_MARK_ROWS + 1] == f"Web:       http://[{V6}]"
-        assert console.console.msgbox_kwargs["height"] == BOX_ROWS + (
-            keelbanner.added_rows(SMALL_MARK)
+        assert console.console.msgbox_kwargs["height"] == box_height(
+            SMALL_MARK, SHORT_TERMINAL
         )
 
-    def test_80_by_24_keeps_the_usage_screen_whole(self, tc, usage_env):
-        # Arrange
+    def test_the_box_never_grows_past_the_room_on_the_screen(
+        self, tc, usage_env
+    ):
+        # Arrange: room for the full mark and not one row more
+        usage_env["net"]["ipv6conf"] = (V6, "64")
+        usage_env["terminal"] = terminal_for(FULL_MARK)
+        install_marks(usage_env)
+        console = make_usage_console(tc)
+
+        # Act
+        console.usage()
+
+        # Assert
+        room = usage_env["terminal"][0] - keelbanner.SCREEN_ROWS
+        text = console.console.calls[-1][2]
+        assert text.splitlines()[:FULL_MARK_ROWS] == centred_rows(
+            FULL_MARK_COLS, FULL_MARK_ROWS
+        )
+        assert console.console.msgbox_kwargs["height"] == room
+
+    def test_80_by_24_dual_stack_keeps_the_usage_screen_whole(
+        self, tc, usage_env
+    ):
+        # Arrange: eleven rows of usage text and both fixtures installed;
+        # the room on 24 rows holds the text, and a small mark of five
+        # rows does not fit above it
+        usage_env["net"]["ipconf"] = (V4, "255.255.255.0", "192.0.2.1", [])
         usage_env["net"]["ipv6conf"] = (V6, "64")
         usage_env["terminal"] = (24, 80)
-        install_marks(usage_env)
+        install_marks(usage_env, small="\n".join(["#"] * 5) + "\n")
         console = make_usage_console(tc)
 
         # Act
@@ -563,6 +638,68 @@ class TestUsageMark:
         assert "#" not in text
         assert text.splitlines()[0] == f"Web:       http://[{V6}]"
         assert console.console.msgbox_kwargs["height"] == BOX_ROWS
+        assert console.console.msgbox_kwargs["width"] == BOX_COLS
+
+    def test_a_utf8_locale_takes_the_utf8_ladder(
+        self, tc, usage_env, monkeypatch
+    ):
+        # Arrange
+        monkeypatch.setenv("LANG", "C.UTF-8")
+        wide = "\n".join(["█" * 90] * 3) + "\n"
+        full = "\n".join(["▒" * 20] * 3) + "\n"
+        small = "░\n"
+        usage_env["net"]["ipv6conf"] = (V6, "64")
+        usage_env["terminal"] = (40, 80)
+        install_utf8_marks(usage_env, wide, full, small)
+        console = make_usage_console(tc)
+
+        # Act
+        console.usage()
+
+        # Assert: the wide one is too wide for 80 columns, so the full one
+        lines = console.console.calls[-1][2].splitlines()
+        assert lines[0] == indent_of(20) + "▒" * 20
+        assert "#" not in "\n".join(lines)
+
+    def test_the_wide_mark_widens_the_box_and_is_centred_in_it(
+        self, tc, usage_env, monkeypatch
+    ):
+        # Arrange: a wide mark wider than the usual box, a terminal with
+        # room for it
+        monkeypatch.setenv("LANG", "en_US.UTF-8")
+        wide_cols = BOX_COLS + 30
+        wide = "\n".join(["█" * wide_cols] * 4) + "\n"
+        usage_env["net"]["ipv6conf"] = (V6, "64")
+        usage_env["terminal"] = (45, 160)
+        install_utf8_marks(usage_env, wide, "▒\n", "░\n")
+        console = make_usage_console(tc)
+
+        # Act
+        console.usage()
+
+        # Assert: the box is the mark and its frame, and the mark fills it
+        width = console.console.msgbox_kwargs["width"]
+        assert width == wide_cols + keelbanner.FRAME
+        lines = console.console.calls[-1][2].splitlines()
+        assert lines[:4] == ["█" * wide_cols] * 4
+        assert lines[5] == f"Web:       http://[{V6}]"
+
+    def test_the_c_locale_never_draws_a_utf8_mark(self, tc, usage_env):
+        # Arrange: every mark installed, the C locale of the fixture
+        usage_env["net"]["ipv6conf"] = (V6, "64")
+        usage_env["terminal"] = (50, 200)
+        install_utf8_marks(usage_env, "█\n", "▒\n", "░\n")
+        console = make_usage_console(tc)
+
+        # Act
+        console.usage()
+
+        # Assert
+        text = console.console.calls[-1][2]
+        assert text.isascii()
+        assert text.splitlines()[0] == indent_of(FULL_MARK_COLS) + (
+            "#" * FULL_MARK_COLS
+        )
 
     def test_an_appliance_without_the_mark_files_is_unchanged(
         self, tc, usage_env

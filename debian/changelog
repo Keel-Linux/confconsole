@@ -1,3 +1,20 @@
+confconsole (2.2.3+keel9) trixie; urgency=low
+
+  * Usage screen: the maintainer's console art in tiers. keelbanner picks
+    the largest that the dialog has room for, in the order wide (the mark
+    with the KEEL LINUX lettering, the tagline and KEELLINUX.ORG), full,
+    small, none, from the files keel-core installs in /etc/keel.
+  * The room is measured as dialog uses it: the screen less the backtitle
+    and the shadow, and the box's own text wrapped at its width plus its
+    frame and button. The box widens for a mark wider than it and grows
+    by the mark's rows, never past the room, so the addresses keep every
+    line. The 24 row floor and the fixed 25 row box of the first version
+    no longer decide.
+  * UTF-8 tiers when the locale dialog inherits is UTF-8 (LC_ALL,
+    LC_CTYPE, LANG), the ASCII ones otherwise.
+
+ -- Marcos Méndez <mendez.foto@gmail.com>  Thu, 01 Oct 2026 21:00:00 +0000
+
 confconsole (2.2.3+keel8) trixie; urgency=low
 
   * keelfirstboot.py, the first boot screens handbook decision 0020
