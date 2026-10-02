@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # Copyright (c) 2008 Alon Swartz <alon@turnkeylinux.org> - all rights reserved
-"""TurnKey Configuration Console
+"""Keel Linux Configuration Console
 
 Options:
     -h, --help           Display this help and exit

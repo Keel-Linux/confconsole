@@ -19,6 +19,10 @@ confconsole (2.2.3+keel10) trixie; urgency=low
     docs/System_settings.rst) instead of turnkeylinux.org, and a missing
     DNS provider list is reported to the confconsole issues here, not to
     TurnKey.
+  * --help says "Keel Linux Configuration Console" (the module
+    docstring). turnkey-lexicon's help sends problems to the confconsole
+    issues here instead of TurnKey's forum and tracker, and no longer
+    calls confconsole TurnKey's.
   * Kept: the turnkey-lexicon and turnkey-install-security-updates
     commands (installed names, run by the screens), the Python class
     name TurnkeyConsole, the package dependencies on turnkey-netinfo and

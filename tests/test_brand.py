@@ -106,3 +106,18 @@ def test_etc_appname_still_wins(confconsole, monkeypatch, tmp_path):
 def test_no_screen_text_names_turnkey(path):
     shown = [text for text in strings(path) if names_turnkey(text)]
     assert shown == []
+
+
+def test_help_text_names_keel_linux(confconsole):
+    # The module docstring is what --help prints.
+    assert confconsole.__doc__.splitlines()[0] == (
+        "Keel Linux Configuration Console"
+    )
+    assert "turnkey" not in confconsole.USAGE.lower()
+
+
+def test_lexicon_wrapper_sends_problems_to_keel():
+    text = (ROOT / "turnkey-lexicon").read_text()
+    assert "turnkeylinux" not in text
+    assert "TurnKey" not in text
+    assert "https://github.com/Keel-Linux/confconsole/issues" in text

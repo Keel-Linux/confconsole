@@ -18,13 +18,9 @@ Then select:
 
   Advanced >> Let's Encrypt >> Get Certificate >> DNS-01
 
-If you encounter problems, please report to TurnKey, either via our forums:
+If you encounter problems, please open an issue:
 
-    https://www.turnkeylinux.org/forum/support
-
-Or open an issue on our tracker:
-
-    https://github.com/turnkeylinux/tracker/issues
+    https://github.com/Keel-Linux/confconsole/issues
 EOF
     exit 1
 }
@@ -36,7 +32,7 @@ Syntax $(basename "$0") [-h|--help] [-l|--lexicon-help] [<lexicon_args>] [<provi
 Lexicon is a tool to manipulate DNS records on various DNS providers in a
 standardized way.
 
-TurnKey Confconsole leverages lexicon to support Let's Encrypt
+Confconsole leverages lexicon to support Let's Encrypt
 DNS challenges, via Dehydrated. This script ensures that lexicon is run
 within it's required virtual environment.
 
