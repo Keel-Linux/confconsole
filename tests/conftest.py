@@ -8,6 +8,7 @@ tested on any host. Nothing here touches the live system.
 """
 
 import importlib
+import os
 import sys
 import types
 from pathlib import Path
@@ -423,4 +424,9 @@ def cloud(tmp_path_factory, monkeypatch):
     # outside tmp_path, where the spec is: tests list that directory
     flag = tmp_path_factory.mktemp("keel-cloud") / "cloud-endpoint"
     monkeypatch.setattr(keelmenu, "CLOUD_ENDPOINT", str(flag))
-    return flag
+    # the tests write it as themselves; on a machine root must own it
+    monkeypatch.setattr(keelmenu, "CLOUD_OWNER", os.getuid())
+    # and writable by its owner alone, whatever the umask of the run
+    before = os.umask(0o022)
+    yield flag
+    os.umask(before)

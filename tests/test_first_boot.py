@@ -355,6 +355,23 @@ class TestTheRole:
         assert "Standalone is the default" in text
         assert flows == [("standalone", {"engine": "mariadb"}, "mariadb")]
 
+    @pytest.mark.parametrize("engine", ["redis", "postgresql"])
+    def test_an_engine_keel_does_not_replicate_is_not_asked(
+        self, keel, spec, flows, capsys, engine
+    ):
+        # keel validates primary and replica for Redis and PostgreSQL but
+        # applies neither; offering them would write a role nothing makes
+        spec({"version": 1, "database": {"server": {"engine": engine}}})
+        console = FakeConsole()
+
+        keelfirstboot.choose_role(console, str(spec.path), read(spec.path))
+
+        assert console.calls == []
+        assert flows == []
+        err = capsys.readouterr().err
+        assert f"keel does not apply {engine} replication yet" in err
+        assert "stays standalone" in err
+
     def test_the_declared_role_is_named_when_keel_init_asks_again(
         self, keel, spec, flows
     ):

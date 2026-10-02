@@ -14,16 +14,23 @@ so confconsole holds no second copy of the resolution rules.
 
 The rules, by the entry's path under plugins.d:
 
-- Instance/Database_mode: a mariadb or postgresql data service in the
-  chain, an overlay that provides that engine or a service the
-  application consumes.
+- Instance/Database_mode: a data service of DATA_ENGINES in the chain,
+  an overlay that provides that engine or a service the application
+  consumes, or a server the spec declares (database.server).
+- Instance/Database_mode/Cloud: only for an engine whose replication
+  keel applies (REPLICATING_ENGINES). keel validates primary and
+  replica for every engine but converges MariaDB's alone; for Redis and
+  PostgreSQL it notes that and changes nothing, so their Database mode
+  offers Standalone only rather than roles nothing would make.
 - Instance/Overlay_network.py: the wireguard overlay in the chain. It is
   in the Instance menu in the cloud modes, or once this node uses the
   overlay; in a simple installation it is behind Advanced.
 - Instance/Keel_Cloud.py: hidden until Keel Cloud exists, which is when
-  CLOUD_ENDPOINT holds the endpoint of the service. Nothing writes that
-  file yet; the screen, its tests and its first boot step stay, and
-  writing the file turns them on.
+  CLOUD_ENDPOINT holds the endpoint of the service: one https URL with a
+  host (a bracketed IPv6 literal allowed), in a regular file root owns
+  and neither group nor others can write. Anything else keeps it hidden
+  and is logged. Nothing writes that file yet; the screen, its tests and
+  its first boot step stay, and writing the file turns them on.
 
 Every other entry is shown. Where the chain cannot be read (no keel, no
 appliance manifest, as on every machine of before 0041, or a spec that
@@ -32,18 +39,29 @@ behind Advanced: hiding a screen a machine needs is worse than offering
 one that says it has nothing to configure.
 """
 
+import logging
 import os
+import stat
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 import keelcli
 import wgcli
+
+log = logging.getLogger("keelmenu")
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 PLUGINS = os.path.join(HERE, "plugins.d")
 ROOT = "/"
 CLOUD_ENDPOINT = "/etc/keel/cloud-endpoint"
+CLOUD_OWNER = 0
+CLOUD_SCHEME = "https"
 CLOUD_MODES = ("cloud_simple", "cloud_advanced")
-DATA_ENGINES = frozenset(["mariadb", "postgresql"])
+# The data services Database mode configures: adding an engine (mongodb,
+# couchdb) is one entry here
+DATA_ENGINES = frozenset({"mariadb", "postgresql", "redis"})
+# Those whose primary and replica keel applies, not only validates
+REPLICATING_ENGINES = frozenset({"mariadb"})
 WIREGUARD = "wireguard"
 ENABLED = "enabled"
 OK = "ok"
@@ -76,6 +94,8 @@ class Machine:
     chain: Chain | None
     mode: str
     uses_overlay: bool
+    server_engine: str = ""
+    has_server: bool = False
 
 
 def _engines(resolved) -> frozenset:
@@ -120,20 +140,72 @@ def machine() -> Machine:
     mode = str(_section(document, "installation").get("mode") or "")
     uses = (_section(document, "overlays").get(WIREGUARD) == ENABLED
             or bool(wgcli.overlay_of(document)))
-    return Machine(chain, mode, uses)
+    server = keelcli.server_of(document)
+    return Machine(chain, mode, uses, str(server.get("engine") or ""),
+                   bool(server))
+
+
+def replicates(engine: str) -> bool:
+    """Whether keel applies a primary and a replica of `engine`"""
+    return engine in REPLICATING_ENGINES
+
+
+def _read(path: str) -> str:
+    with open(path) as fob:
+        return fob.read()
+
+
+def endpoint_problem(path: str) -> str:
+    """Why `path` does not turn Keel Cloud on, or "" when it does"""
+    try:
+        info = os.stat(path)
+        if not stat.S_ISREG(info.st_mode):
+            return "not a regular file"
+        if info.st_uid != CLOUD_OWNER:
+            return "not owned by root"
+        if info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+            return "writable by group or others"
+        words = _read(path).split()
+    except OSError as error:
+        return error.strerror or str(error)
+    if len(words) != 1:
+        return "must hold one URL" if words else "empty"
+    try:
+        url = urlsplit(words[0])
+        url.port  # a port out of range raises here
+    except ValueError as error:
+        return f"not a URL: {error}"
+    if url.scheme != CLOUD_SCHEME:
+        return f"must be an {CLOUD_SCHEME} URL"
+    if not url.hostname:
+        return "no host in the URL"
+    return ""
 
 
 def cloud_available() -> bool:
-    """Whether Keel Cloud exists for this node: an endpoint is set"""
-    try:
-        with open(CLOUD_ENDPOINT) as fob:
-            return bool(fob.read().strip())
-    except OSError:
+    """Whether Keel Cloud exists for this node: a valid endpoint is set.
+    No file is the default and is quiet; a file that does not hold a
+    valid endpoint keeps Keel Cloud hidden and says why in the log."""
+    if not os.path.lexists(CLOUD_ENDPOINT):
         return False
+    problem = endpoint_problem(CLOUD_ENDPOINT)
+    if problem:
+        log.warning("Keel Cloud stays hidden: %s: %s", CLOUD_ENDPOINT,
+                    problem)
+        return False
+    return True
 
 
 def _database(found: Machine) -> str:
-    if found.chain is None or found.chain.engines & DATA_ENGINES:
+    if (found.chain is None or found.has_server
+            or found.chain.engines & DATA_ENGINES):
+        return SHOW
+    return HIDE
+
+
+def _replication(found: Machine) -> str:
+    if found.chain is None or replicates(found.server_engine) or (
+            found.chain.engines & REPLICATING_ENGINES):
         return SHOW
     return HIDE
 
@@ -152,6 +224,7 @@ def _cloud(found: Machine) -> str:
 
 RULES = {
     os.path.join("Instance", "Database_mode"): _database,
+    os.path.join("Instance", "Database_mode", "Cloud"): _replication,
     os.path.join("Instance", "Overlay_network.py"): _overlay,
     os.path.join("Instance", "Keel_Cloud.py"): _cloud,
 }

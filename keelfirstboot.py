@@ -328,6 +328,11 @@ def choose_role(console, path: str, document: dict) -> None:
         say(ROLE, "no database server on this machine, so no role to"
             " choose: it stays standalone")
         return
+    if not keelmenu.replicates(engine):
+        # keel validates a primary or a replica of it, and applies none
+        say(ROLE, f"keel does not apply {engine} replication yet, so no"
+            " role to choose: it stays standalone")
+        return
     text = ROLE_TEXT
     if server.get("role"):
         text += f"\n\nThe description says: {server['role']}."

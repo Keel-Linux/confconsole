@@ -3,20 +3,26 @@ confconsole (2.2.3+keel12) trixie; urgency=low
   * The Instance menu offers a screen only where what it configures is in
     the appliance, read from the appliance manifest (handbook decision
     0041) through keel's own resolution: Database mode only where the
-    chain has a mariadb or postgresql data service, so not on Keel Core
-    or Keel Web (the maintainer's screenshots of the Keel Web step 8
-    image); Overlay network in the menu in the cloud modes or once the
+    chain has a mariadb, postgresql or redis data service (one set,
+    keelmenu.DATA_ENGINES) or the description declares database.server,
+    so not on Keel Core or Keel Web (the maintainer's screenshots of the
+    Keel Web step 8 image); its Cloud roles only for MariaDB, the one
+    engine whose replication keel applies (Redis and PostgreSQL get
+    Standalone, and the first boot asks them no role); Overlay network in the menu in the cloud modes or once the
     overlay is in use, behind a new Advanced entry in a simple
     installation. A machine whose chain cannot be read keeps the screens
     it had.
   * Keel Cloud is hidden until it exists: the Instance entry and the first
     boot step (keelfirstboot.py cloud, run by inithooks' 80keel-cloud) ask
-    for no key until /etc/keel/cloud-endpoint names the service. The
-    screen, its tests and its first boot step stay.
+    for no key until /etc/keel/cloud-endpoint holds one https URL with a
+    host, in a file root owns and nobody else can write; anything else
+    keeps it hidden and is logged. The screen, its tests and its first
+    boot step stay.
   * No text is cut at the box edge: a menu is as wide as its widest line,
     up to the terminal, a message box is sized to its text up to the
     terminal, and no box is taller than the terminal (on 24 rows it was
-    drawn over the backtitle). Show drift stacks the table two lines a
+    drawn over the backtitle), nor sized 0, which dialog takes as its own
+    autosize, even on a terminal of 8 columns. Show drift stacks the table two lines a
     field when it is wider than the box, where every row wrapped in two
     at 80 columns. The Keel descriptions were
     shortened to fit 80 columns, and a test holds them to it. The overlay

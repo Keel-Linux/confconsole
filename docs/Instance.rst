@@ -28,10 +28,18 @@ spec.
 | Show drift,       |                                                        |
 | Export spec       |                                                        |
 +-------------------+--------------------------------------------------------+
-| Database mode     | a ``mariadb`` or ``postgresql`` data service is in the |
-|                   | chain: an overlay that provides the engine, or a       |
-|                   | service the application consumes. Not on Keel Core or  |
-|                   | Keel Web                                               |
+| Database mode     | a ``mariadb``, ``postgresql`` or ``redis`` data        |
+|                   | service is in the chain (an overlay that provides the  |
+|                   | engine, or a service the application consumes), or the |
+|                   | spec declares ``database.server``. Not on Keel Core or |
+|                   | Keel Web. The engines are one set,                     |
+|                   | ``keelmenu.DATA_ENGINES``                              |
++-------------------+--------------------------------------------------------+
+| Database mode >   | only for an engine whose replication keel applies,     |
+| Cloud             | MariaDB today (``keelmenu.REPLICATING_ENGINES``). keel |
+|                   | validates a Redis or PostgreSQL primary and replica    |
+|                   | but converges neither, so those offer Standalone only, |
+|                   | and the first boot asks them no role                   |
 +-------------------+--------------------------------------------------------+
 | Overlay network   | the ``wireguard`` overlay is in the chain. In the menu |
 |                   | in ``cloud_simple`` and ``cloud_advanced``, or once    |
@@ -44,6 +52,18 @@ spec.
 |                   | cloud``, run by inithooks' ``80keel-cloud``) asks no   |
 |                   | key either. Writing that file turns both on            |
 +-------------------+--------------------------------------------------------+
+
+``/etc/keel/cloud-endpoint`` holds one URL and nothing else (surrounding
+whitespace and a final newline are ignored)::
+
+    https://cloud.example.org
+    https://[2001:db8::10]:8443/keel
+
+It must be ``https`` with a host, a bracketed IPv6 literal allowed and a
+port optional, in a regular file owned by root and writable by neither
+group nor others (``install -m 0644 -o root``). A missing file is the
+default and is quiet; any other failure keeps Keel Cloud hidden and is
+logged as ``Keel Cloud stays hidden: /etc/keel/cloud-endpoint: <why>``.
 
 When the chain cannot be read (keel or the manifests missing, as on a
 machine of before 0041, or a spec that names no appliance) the screens are
@@ -169,7 +189,9 @@ network confirm`` from a new session.
 Database mode
 -------------
 
-Handbook decision 0013. MariaDB only for now. Every screen configures
+Handbook decision 0013. Replication is MariaDB's only for now: keel
+validates a Redis or PostgreSQL primary and replica but applies neither,
+so for those engines the menu offers Standalone alone. Every screen configures
 THIS node and nothing else, writes ``database.server`` of the instance
 description, checks it with ``keel spec validate`` before it replaces the
 file, and runs ``keel spec apply --system-only --non-interactive

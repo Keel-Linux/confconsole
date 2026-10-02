@@ -11,6 +11,8 @@ installed.
 """
 
 import importlib
+import logging
+import os
 import sys
 import types
 from pathlib import Path
@@ -23,6 +25,7 @@ from conftest import CORE, WEB, overlay, resolved
 
 PLUGINS = Path(keelmenu.PLUGINS)
 DATABASE = str(PLUGINS / "Instance" / "Database_mode")
+REPLICATION = str(PLUGINS / "Instance" / "Database_mode" / "Cloud")
 OVERLAY = str(PLUGINS / "Instance" / "Overlay_network.py")
 CLOUD = str(PLUGINS / "Instance" / "Keel_Cloud.py")
 VIEW = str(PLUGINS / "Instance" / "View_spec.py")
@@ -102,6 +105,16 @@ class TestTheMachine:
         assert found.chain is None
         assert found.mode == ""
         assert chains["asked"] == []
+        assert found.has_server is False
+
+    def test_a_declared_server_and_its_engine(self, chains, spec):
+        spec("web", database={"server": {"engine": "redis",
+                                         "role": "standalone"}})
+
+        found = keelmenu.machine()
+
+        assert found.has_server is True
+        assert found.server_engine == "redis"
 
     @pytest.mark.parametrize("text", ["- a list\n", "appliance: web\n"
                                       "installation: simple\n"])
@@ -143,12 +156,62 @@ class TestDatabaseMode:
     ):
         assert keelmenu.place(DATABASE, machine(name)) == keelmenu.SHOW
 
-    def test_postgresql_counts_and_redis_does_not(self, chains):
-        chains["pg"] = resolved([overlay("postgresql", "postgresql")])
-        chains["cache"] = resolved([overlay("redis", "redis")])
+    @pytest.mark.parametrize("engine", ["postgresql", "redis"])
+    def test_postgresql_and_redis_count(self, chains, engine):
+        chains["db"] = resolved([overlay(engine, engine)])
 
-        assert keelmenu.place(DATABASE, machine("pg")) == keelmenu.SHOW
-        assert keelmenu.place(DATABASE, machine("cache")) == keelmenu.HIDE
+        assert keelmenu.place(DATABASE, machine("db")) == keelmenu.SHOW
+
+    def test_an_engine_outside_the_list_does_not(self, chains):
+        chains["search"] = resolved([overlay("opensearch", "opensearch")])
+
+        assert keelmenu.place(DATABASE, machine("search")) == keelmenu.HIDE
+
+    def test_the_engines_are_one_set(self):
+        # adding mongodb or couchdb is one line here
+        assert keelmenu.DATA_ENGINES == {"mariadb", "postgresql", "redis"}
+        assert keelmenu.REPLICATING_ENGINES <= keelmenu.DATA_ENGINES
+
+    def test_a_declared_server_shows_it_whatever_the_chain(self, chains):
+        # a description that holds database.server is a server to
+        # configure, even where the manifests name no engine
+        found = keelmenu.Machine(keelmenu.chain_of("web"), "simple", False,
+                                 server_engine="mariadb", has_server=True)
+
+        assert keelmenu.place(DATABASE, found) == keelmenu.SHOW
+
+
+class TestReplication:
+    """Database mode > Cloud: only for an engine whose replication keel
+    applies. keel validates primary and replica for every engine of
+    DATABASE_ENGINES but converges MariaDB's alone (system/database.py:
+    another engine is a note), so Redis and PostgreSQL get Standalone"""
+
+    def test_mariadb_replicates(self, chains):
+        assert keelmenu.place(REPLICATION, machine("mariadb")) == (
+            keelmenu.SHOW)
+
+    @pytest.mark.parametrize("engine", ["postgresql", "redis"])
+    def test_an_engine_keel_does_not_replicate_has_no_cloud(
+        self, chains, engine
+    ):
+        chains["db"] = resolved([overlay(engine, engine)])
+
+        assert keelmenu.place(REPLICATION, machine("db")) == keelmenu.HIDE
+
+    def test_a_declared_mariadb_server_replicates(self, chains):
+        found = keelmenu.Machine(keelmenu.chain_of("web"), "simple", False,
+                                 server_engine="mariadb", has_server=True)
+
+        assert keelmenu.place(REPLICATION, found) == keelmenu.SHOW
+
+    def test_an_unknown_chain_keeps_it(self):
+        assert keelmenu.place(REPLICATION, machine(None)) == keelmenu.SHOW
+
+    @pytest.mark.parametrize("engine, expected", [
+        ("mariadb", True), ("redis", False), ("", False)])
+    def test_replicates(self, engine, expected):
+        assert keelmenu.replicates(engine) is expected
 
     def test_an_unknown_chain_shows_it_as_before(self):
         # every machine of before 0041 has no manifest; hiding a screen
@@ -196,6 +259,83 @@ class TestKeelCloud:
 
         assert keelmenu.cloud_available() is True
         assert keelmenu.place(CLOUD, machine("web")) == keelmenu.SHOW
+
+    @pytest.mark.parametrize("text", [
+        "https://cloud.keellinux.org", "https://[2001:db8::1]:8443/api",
+        "https://cloud.example/v1\n"])
+    def test_an_https_url_with_a_host_turns_it_on(self, cloud, text):
+        cloud.write_text(text)
+
+        assert keelmenu.cloud_available() is True
+
+    @pytest.mark.parametrize("text, why", [
+        ("http://cloud.example", "https"),
+        ("cloud.example", "https"),
+        ("https://", "no host"),
+        ("https:///path", "no host"),
+        ("https://[2001:db8::1/", "not a URL"),
+        ("https://cloud.example:99999", "not a URL"),
+        ("https://a.example https://b.example", "one URL"),
+        ("https://a.example\nhttps://b.example", "one URL"),
+    ])
+    def test_anything_else_keeps_it_hidden_and_says_why(
+        self, cloud, caplog, text, why
+    ):
+        cloud.write_text(text)
+
+        with caplog.at_level(logging.WARNING, logger="keelmenu"):
+            assert keelmenu.cloud_available() is False
+
+        assert why in caplog.text
+        assert keelmenu.CLOUD_ENDPOINT in caplog.text
+
+    def test_a_file_root_does_not_own_is_refused(
+        self, cloud, caplog, monkeypatch
+    ):
+        cloud.write_text("https://cloud.example\n")
+        monkeypatch.setattr(keelmenu, "CLOUD_OWNER", os.getuid() + 1)
+
+        with caplog.at_level(logging.WARNING, logger="keelmenu"):
+            assert keelmenu.cloud_available() is False
+
+        assert "not owned by root" in caplog.text
+
+    @pytest.mark.parametrize("mode", [0o664, 0o646, 0o666])
+    def test_a_file_others_can_write_is_refused(self, cloud, caplog, mode):
+        cloud.write_text("https://cloud.example\n")
+        cloud.chmod(mode)
+
+        with caplog.at_level(logging.WARNING, logger="keelmenu"):
+            assert keelmenu.cloud_available() is False
+
+        assert "writable by group or others" in caplog.text
+
+    def test_a_directory_is_refused(self, cloud, caplog):
+        cloud.mkdir()
+
+        with caplog.at_level(logging.WARNING, logger="keelmenu"):
+            assert keelmenu.cloud_available() is False
+
+        assert "not a regular file" in caplog.text
+
+    def test_an_unreadable_file_is_refused(self, cloud, caplog,
+                                           monkeypatch):
+        cloud.write_text("https://cloud.example\n")
+
+        def deny(*args, **kwargs):
+            raise PermissionError(13, "Permission denied")
+
+        monkeypatch.setattr(keelmenu, "_read", deny)
+        with caplog.at_level(logging.WARNING, logger="keelmenu"):
+            assert keelmenu.cloud_available() is False
+
+        assert "Permission denied" in caplog.text
+
+    def test_no_file_is_the_quiet_default(self, cloud, caplog):
+        with caplog.at_level(logging.WARNING, logger="keelmenu"):
+            assert keelmenu.cloud_available() is False
+
+        assert caplog.text == ""
 
 
 class TestOtherScreens:
