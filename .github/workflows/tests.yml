@@ -6,9 +6,10 @@ on:
 jobs:
   tests:
     # Threshold 100: ifutil.py, keelcli.py, keelbanner.py, dbscreen.py,
-    # wgcli.py, wgscreen.py, keelfirstboot.py and the Instance menu
-    # entries, the database mode, overlay and Keel Cloud screens
-    # included, measure 100 percent (682 tests, lines and branches). The
+    # wgcli.py, wgscreen.py, keelfirstboot.py, keelfit.py, keelmenu.py
+    # and the Instance menu entries, the database mode, overlay and Keel
+    # Cloud screens included, measure 100 percent (796 tests, lines and
+    # branches). The
     # package list names the modules with tests; a module is appended as
     # its tests land (COVERAGE.md plan) and the threshold is only ever
     # raised (decision 0006). Baseline before the first test: 0 percent.
@@ -18,7 +19,7 @@ jobs:
     uses: keel-linux/.github/.github/workflows/test-python.yml@main
     with:
       threshold: 100
-      package: ifutil,keelbanner,keelcli,dbscreen,wgcli,wgscreen,keelfirstboot,plugins.d/Instance
+      package: ifutil,keelbanner,keelcli,dbscreen,wgcli,wgscreen,keelfirstboot,keelfit,keelmenu,plugins.d/Instance
   # A change that ships must come with a changelog entry, or it cannot be
   # installed and never reaches an appliance. The rule and its tests are
   # bin/require-changelog of the .github repository. The check is

@@ -1,4 +1,4 @@
-"""Standalone: one server, replicating nothing"""
+"""One server, replicating nothing"""
 
 import dbscreen
 import keelcli

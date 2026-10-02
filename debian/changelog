@@ -1,4 +1,4 @@
-confconsole (2.2.3+keel12) trixie; urgency=low
+confconsole (2.2.3+keel13) trixie; urgency=low
 
   * The first boot role screen does not run keel inspect on a machine
     with no database server. keel inspect reads the whole machine to find
@@ -8,6 +8,44 @@ confconsole (2.2.3+keel12) trixie; urgency=low
     of keel's own table (keel.inspect.dbengines.ENGINES) there is nothing
     to find, so the role stays standalone at once, and the journal says
     why as before. When the table cannot be read, keel is asked.
+
+ -- Marcos Méndez <mendez.foto@gmail.com>  Fri, 02 Oct 2026 18:00:00 +0000
+
+confconsole (2.2.3+keel12) trixie; urgency=low
+
+  * The Instance menu offers a screen only where what it configures is in
+    the appliance, read from the appliance manifest (handbook decision
+    0041) through keel's own resolution: Database mode only where the
+    chain has a mariadb, postgresql or redis data service (one set,
+    keelmenu.DATA_ENGINES) or the description declares database.server,
+    so not on Keel Core or Keel Web (the maintainer's screenshots of the
+    Keel Web step 8 image); its Cloud roles only for MariaDB, the one
+    engine whose replication keel applies (Redis and PostgreSQL get
+    Standalone, and the first boot asks them no role); Overlay network in the menu in the cloud modes or once the
+    overlay is in use, behind a new Advanced entry in a simple
+    installation. A machine whose chain cannot be read keeps the screens
+    it had.
+  * Keel Cloud is hidden until it exists: the Instance entry and the first
+    boot step (keelfirstboot.py cloud, run by inithooks' 80keel-cloud) ask
+    for no key until /etc/keel/cloud-endpoint holds one https URL with a
+    host, in a file root owns and nobody else can write; anything else
+    keeps it hidden and is logged. The screen, its tests and its first
+    boot step stay.
+  * No text is cut at the box edge: a menu is as wide as its widest line,
+    up to the terminal, a message box is sized to its text up to the
+    terminal, and no box is taller than the terminal (on 24 rows it was
+    drawn over the backtitle), nor sized 0, which dialog takes as its own
+    autosize, even on a terminal of 8 columns. Show drift stacks the table two lines a
+    field when it is wider than the box, where every row wrapped in two
+    at 80 columns. The Keel descriptions were
+    shortened to fit 80 columns, and a test holds them to it. The overlay
+    screen lists one line a peer, at most three, so its menu keeps its
+    rows on 24 (two peers drew the menu over its buttons); the remove
+    peer menu shows the peer's address, not its endpoint.
+  * The overlay address screen says what the suggested fdXX::1/64 is:
+    this node's address on Keel's private mesh, randomly generated, not
+    a LAN address; the first node keeps it, the others take ::2, ::3 on
+    the same /64; and the port is the UDP port the other nodes reach.
 
  -- Marcos Méndez <mendez.foto@gmail.com>  Fri, 02 Oct 2026 16:00:00 +0000
 

@@ -10,6 +10,8 @@ from types import ModuleType
 from typing import Callable, Any, Iterable
 import typing
 
+import keelmenu
+
 
 class PluginError(Exception):
     pass
@@ -161,24 +163,16 @@ class PluginDir:
     def doOnce(self): ...
 
     def run(self) -> str | None:
-        items = []
-        plugin_map: dict[str, Plugin | PluginDir] = {}
-        for plugin in self.plugins:
-            if isinstance(plugin, Plugin) and hasattr(plugin.module, "run"):
-                items.append(
-                    (
-                        plugin.module_name.capitalize(),
-                        str(plugin.module.__doc__),
-                    )
-                )
-                plugin_map[plugin.module_name.capitalize()] = plugin
-            elif isinstance(plugin, PluginDir):
-                items.append(
-                    (plugin.module_name.capitalize(), plugin.description)
-                )
-                plugin_map[plugin.module_name.capitalize()] = plugin
+        # The Keel screens this machine has no use for are left out, and
+        # those a simple installation rarely needs go behind Advanced
+        # (keelmenu, from the appliance manifest)
+        shown, behind = keelmenu.arrange(self.plugins)
+        items, plugin_map = menu_items(shown)
+        if behind:
+            items.append(keelmenu.ADVANCED_ITEM)
 
-        retcode, choice = self.module_globals["console"].menu(
+        console = self.module_globals["console"]
+        retcode, choice = console.menu(
             self.module_name.capitalize(),
             self.module_name.capitalize() + "\n",
             items,
@@ -193,9 +187,35 @@ class PluginDir:
 
         if choice in plugin_map:
             return plugin_map[choice].path
-        else:
-            v: str = "_adv_" + choice.lower()
-            return v
+        if behind and choice == keelmenu.ADVANCED_TAG:
+            more, more_map = menu_items(behind)
+            paths = {tag: one.path for tag, one in more_map.items()}
+            return keelmenu.advanced(console, more, paths, self.path)
+        v: str = "_adv_" + choice.lower()
+        return v
+
+
+def menu_items(
+    plugins: list["Plugin | PluginDir"],
+) -> tuple[list[tuple[str, str]], dict[str, "Plugin | PluginDir"]]:
+    """The menu lines of `plugins`, and the entry each tag opens"""
+    items = []
+    plugin_map: dict[str, Plugin | PluginDir] = {}
+    for plugin in plugins:
+        if isinstance(plugin, Plugin) and hasattr(plugin.module, "run"):
+            items.append(
+                (
+                    plugin.module_name.capitalize(),
+                    str(plugin.module.__doc__),
+                )
+            )
+            plugin_map[plugin.module_name.capitalize()] = plugin
+        elif isinstance(plugin, PluginDir):
+            items.append(
+                (plugin.module_name.capitalize(), plugin.description)
+            )
+            plugin_map[plugin.module_name.capitalize()] = plugin
+    return items, plugin_map
 
 
 class PluginManager:

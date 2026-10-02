@@ -1,4 +1,4 @@
-"""Promote this replica to a primary (an explicit act)"""
+"""Make this replica the primary"""
 
 import dbscreen
 import keelcli

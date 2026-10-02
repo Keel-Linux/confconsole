@@ -10,8 +10,12 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 
+import keelbanner
 import keelcli
+import keelfit
+import keelmenu
 import plugin
 from conftest import FakeConsole
 
@@ -120,7 +124,9 @@ class TestLoader:
 
 
 @pytest.mark.parametrize("name", ENTRIES)
-def test_missing_keel_shows_one_message_and_returns(entry, keel, name):
+def test_missing_keel_shows_one_message_and_returns(entry, keel, name,
+                                                     cloud):
+    cloud.write_text("https://cloud.example\n")  # Keel Cloud's screen open
     keel["outcome"] = keelcli.KeelNotInstalled(keelcli.NOT_INSTALLED)
     loaded, console = entry(
         name, yesno=["ok"], inputs=[("ok", "/root/instance.yaml")]
@@ -196,6 +202,25 @@ class TestApplySpec:
 
 
 class TestShowDrift:
+    @pytest.fixture(autouse=True)
+    def terminal(self, monkeypatch):
+        monkeypatch.setattr(keelbanner, "terminal_size", lambda: (24, 80))
+
+    def test_a_table_too_wide_for_80_columns_is_stacked(self, entry, keel):
+        long = "network.interfaces.eth0.ipv6.method"
+        document = {"fields": [{"field": long, "status": "drift",
+                                "declared": "x" * 30, "observed": "auto",
+                                "reason": ""}],
+                    "counts": {"drift": 1}, "drift": True}
+        keel["outcome"] = (None, 14, json.dumps(document))
+        loaded, console = entry("Show_drift.py")
+
+        loaded.run()
+
+        (_, _, text), = messages(console)
+        assert text.splitlines()[:2] == [
+            f"{long}: drift", f"    declared {'x' * 30}, observed auto"]
+
     def test_renders_the_json_as_a_table(self, entry, keel):
         document = {
             "fields": [
@@ -266,3 +291,153 @@ class TestExportSpec:
 
         assert keel["calls"] == []
         assert messages(console) == []
+
+
+# --- what the Instance menu offers, from the appliance manifest (0041)
+
+PLAIN = ["View spec", "Apply spec", "Show drift", "Export spec"]
+
+
+@pytest.fixture
+def instance(tmp_path, monkeypatch, chains, cloud):
+    """The Instance menu, loaded as confconsole loads it, on a machine
+    whose spec names `appliance` in `mode`; returns (menu, console)"""
+    spec = tmp_path / "instance.yaml"
+    monkeypatch.setenv("KEEL_SPEC", str(spec))
+
+    def _load(appliance, mode="simple", menus=(("cancel", ""),), **more):
+        document = {"version": 1, "appliance": {"name": appliance},
+                    "installation": {"mode": mode}, **more}
+        spec.write_text(yaml.safe_dump(document))
+        manager = plugin.PluginManager(str(INSTANCE_DIR), {})
+        menu = plugin.PluginDir(str(INSTANCE_DIR))
+        menu.plugins = list(manager.getByDir(manager.plugin_path))
+        for one in menu.plugins:
+            one.parent = menu.path
+        console = FakeConsole(menus=list(menus))
+        menu.updateGlobals({"console": console})
+        return menu, console
+
+    return _load
+
+
+def tags(console, which=0):
+    menus = [call for call in console.calls if call[0] == "menu"]
+    return [tag for tag, _ in menus[which][3]]
+
+
+class TestTheMenuThisMachineShows:
+    @pytest.mark.parametrize("appliance", ["web", "core"])
+    def test_keel_web_and_core_have_no_database_mode(
+        self, instance, appliance
+    ):
+        menu, console = instance(appliance)
+
+        assert menu.run() == "advanced"
+
+        assert sorted(tags(console)) == sorted(PLAIN + ["Advanced"])
+
+    def test_behind_advanced_in_a_simple_installation_is_the_overlay(
+        self, instance
+    ):
+        menu, console = instance(
+            "web", menus=[("ok", "Advanced"), ("ok", "Overlay network")])
+
+        assert menu.run() == str(INSTANCE_DIR / "Overlay_network.py")
+
+        assert tags(console, 1) == ["Overlay network"]
+
+    def test_back_from_advanced_reopens_the_instance_menu(self, instance):
+        menu, console = instance(
+            "core", menus=[("ok", "Advanced"), ("cancel", "")])
+
+        assert menu.run() == menu.path
+
+    @pytest.mark.parametrize("mode", ["cloud_simple", "cloud_advanced"])
+    def test_a_cloud_mode_shows_the_overlay_and_no_advanced(
+        self, instance, mode
+    ):
+        menu, console = instance("web", mode)
+
+        menu.run()
+
+        assert sorted(tags(console)) == sorted(PLAIN + ["Overlay network"])
+
+    def test_a_database_appliance_shows_database_mode(self, instance):
+        menu, console = instance("mariadb")
+
+        menu.run()
+
+        assert "Database mode" in tags(console)
+
+    def test_keel_cloud_appears_once_its_endpoint_is_set(
+        self, instance, cloud
+    ):
+        cloud.write_text("https://cloud.example\n")
+        menu, console = instance("web")
+
+        menu.run()
+
+        assert "Keel cloud" in tags(console)
+
+    def test_a_choice_in_the_menu_opens_its_screen(self, instance):
+        menu, _ = instance("web", menus=[("ok", "View spec")])
+
+        assert menu.run() == str(INSTANCE_DIR / "View_spec.py")
+
+    def test_a_tag_no_entry_has_is_confconsoles_own_action(self, instance):
+        menu, _ = instance("web", menus=[("ok", "Reboot")])
+
+        assert menu.run() == "_adv_reboot"
+
+    def test_back_from_a_submenu_goes_to_its_parent(self, instance):
+        menu, _ = instance("web")
+        menu.parent = "/parent"
+
+        assert menu.run() == "/parent"
+
+
+def all_menus():
+    """Every Keel menu: the Instance tree's, each with every entry"""
+    manager = plugin.PluginManager(str(INSTANCE_DIR), {})
+    menus = {"Instance": manager.getByDir(manager.plugin_path)}
+    for path, item in manager.path_map.items():
+        if isinstance(item, plugin.PluginDir):
+            menus[path] = manager.getByDir(path)
+    found = {}
+    for name, entries in menus.items():
+        items, _ = plugin.menu_items(list(entries))
+        found[name] = [(tag, text.strip()) for tag, text in items]
+    found["Instance"].append(keelmenu.ADVANCED_ITEM)
+    return found
+
+
+class TestNothingIsCutAt80Columns:
+    """Every Keel menu fits the box an 80 column terminal leaves"""
+
+    COLS = keelbanner.available(24, 80)[1]
+
+    @pytest.mark.parametrize("name, items", sorted(all_menus().items()))
+    def test_every_instance_menu(self, name, items):
+        width = keelfit.menu_width(items, 65, self.COLS)
+
+        assert keelfit.fit_choices(items, width) == items, name
+
+    def test_the_overlay_screens_menus(self):
+        import keelfirstboot
+        import wgscreen
+
+        wireguard = {"address": "fd00::1/64", "peers": [{
+            "public_key": "k" * 44, "allowed_ips": ["fd00::2/128"],
+            "endpoint": "[2001:db8::20]:51820"}]}
+        menus = [
+            wgscreen.choices(wireguard),
+            keelfirstboot.overlay_choices("primary", wireguard),
+            keelfirstboot.overlay_choices("replica", {}),
+            keelfirstboot.ROLE_CHOICES,
+            keelfirstboot.KEY_CHOICES,
+            [keelmenu.ADVANCED_ITEM],
+        ]
+        for items in menus:
+            width = keelfit.menu_width(items, 65, self.COLS)
+            assert keelfit.fit_choices(items, width) == items
