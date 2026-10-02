@@ -235,6 +235,19 @@ class TestTexts:
             "confirm", make_result(wgcli.CONFIRM, 0))
         assert "not confirmed" in wgcli.command_text(
             "confirm", make_result(wgcli.CONFIRM, 21))
+
+    def test_nothing_waiting_is_not_called_a_change_that_reverts(self):
+        """The maintainer's screenshot 040: another session had confirmed
+        the change, and the screen said it would revert. keel says why it
+        refused; the verdict line claims nothing keel did not say."""
+        nothing = make_result(
+            wgcli.CONFIRM, 21, "", "Error: no network change is waiting for"
+            " a confirmation; the last one, of /etc/wireguard/wg0.conf, was"
+            " reverted\n")
+        text = wgcli.command_text("confirm", nothing)
+        assert "not confirmed" in text
+        assert "reverts when" not in text
+        assert "the reason is above" in text
         assert "no public key" in wgcli.command_text(
             "key", make_result(wgcli.KEY, 16))
 

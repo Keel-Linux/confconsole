@@ -102,12 +102,14 @@ def engine_of(console, title: str, server: dict) -> str:
     declared = str(server.get("engine") or "")
     if declared:
         return declared
-    observed, output, problem = observed_engine()
+    observed, _, problem = observed_engine()
     if problem:
         console.msgbox(title, problem)
         return ""
     if not observed:
-        console.msgbox(title, f"{NO_ENGINE}\n\n{output}".strip())
+        # inspect wrote its spec, so what it printed is about other
+        # fields (a missing fqdn, say), not about the database server
+        console.msgbox(title, NO_ENGINE)
     return observed
 
 
