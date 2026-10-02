@@ -25,18 +25,19 @@ ADDRESS = "Address"
 ADD = "Add peer"
 REMOVE = "Remove peer"
 ADDRESS_TEXT = (
-    "This node's address on the overlay: IPv6 with its /64, a unique local"
-    " address (fd00::/8). The first node of a set takes the suggested one,"
-    " ::1 on a fresh /64; the others take ::2, ::3 on the SAME /64.\n\n"
-    "The port is where the other nodes reach this one (blank: 51820)."
+    "This node's address on Keel's private mesh, the WireGuard network"
+    " between the nodes of a set. It is not an address on your LAN.\n\n"
+    "The suggestion is randomly generated. The first node keeps it"
+    " (::1); each other node takes ::2, ::3 on the same /64.\n\n"
+    "UDP port: the UDP port the other nodes reach this one on (blank:"
+    " 51820)."
 )
 PEER_TEXT = (
-    "Another node this one accepts on the overlay, as that node's own"
+    "Another node this one accepts on the mesh, as that node's own"
     " screen shows it.\n\n"
-    "Endpoint: where that node is reached, host:port, an IPv6 address in"
-    " brackets ([2001:db8::20]:51820); blank when it reaches this node"
-    " instead. Keepalive: seconds, keeps a path through a firewall or NAT"
-    " open (blank: none).\n\n" + wgcli.THIS_NODE
+    "Endpoint: host:port where it is reached, IPv6 in brackets"
+    " ([2001:db8::20]:51820); blank when it reaches this node instead."
+    " Keepalive: seconds that keep a path through NAT open (blank: none)."
 )
 
 
@@ -63,7 +64,7 @@ def run(console) -> None:
 
 def choices(wireguard: dict) -> list[tuple[str, str]]:
     """No peer before an address; no removal without a peer"""
-    found = [(ADDRESS, "this node's overlay address and port")]
+    found = [(ADDRESS, "this node's mesh address and UDP port")]
     if not wireguard.get("address"):
         return found
     found.append((ADD, "accept another node: its key, address, endpoint"))
@@ -104,8 +105,8 @@ def set_address(console, path: str, document: dict, wireguard: dict):
     address = str(wireguard.get("address") or suggested(console))
     port = str(wireguard.get("listen_port") or "")
     values = ask(console, ADDRESS_TEXT, [
-        ("Overlay address", address, 20, 44),
-        ("Listen port", port, 20, 44),
+        ("Mesh address", address, 20, 44),
+        ("UDP port", port, 20, 44),
     ])
     if values is None:
         return
@@ -116,7 +117,7 @@ def set_address(console, path: str, document: dict, wireguard: dict):
 def add_peer(console, path: str, document: dict, wireguard: dict):
     values = ask(console, PEER_TEXT, [
         ("Its public key", "", 20, 46),
-        ("Its overlay address", "", 20, 46),
+        ("Its mesh address", "", 20, 46),
         ("Its endpoint", "", 20, 46),
         ("Keepalive (seconds)", wgcli.DEFAULT_KEEPALIVE, 20, 46),
     ])

@@ -142,9 +142,12 @@ class TestBuild:
         assert wgcli.without_peer(OVERLAY, OTHER_KEY) == OVERLAY
 
     def test_the_remove_menu(self):
+        # the key and the address the peer routes, which name it and fit
+        # an 80 column console; the endpoint is on the first screen
         assert wgcli.peer_choices(OVERLAY) == [
-            (PEER_KEY, "fd00:6b65:1::2/128 at [2001:db8::20]:51820")]
-        assert wgcli.peer_line({}) == "- at reaches this node itself"
+            (PEER_KEY, "fd00:6b65:1::2/128")]
+        assert wgcli.peer_choices({"peers": [{"public_key": PEER_KEY}]}) == [
+            (PEER_KEY, "-")]
 
     def test_the_peers_addresses_are_what_a_primary_authorizes(self):
         document = wgcli.with_overlay({}, {
@@ -176,13 +179,57 @@ class TestBuild:
 
 
 class TestTexts:
+    def test_the_address_is_the_mesh_s_not_the_lan_s(self):
+        # The maintainer read the suggested fdXX::1/64 as "a private LAN
+        # address" (step 8 review): the text says whose address it is,
+        # that it is random, which node keeps it and what the port is.
+        text = wgscreen.ADDRESS_TEXT
+        assert "Keel's private mesh" in text
+        assert "not an address on your LAN" in text
+        assert "randomly generated" in text
+        assert "The first node keeps it" in text
+        assert "::2, ::3" in text and "same /64" in text
+        assert "UDP port the other nodes reach" in text
+        assert len(text) < 420
+
+    def test_the_add_peer_form_fits_a_24_row_console(self):
+        # its text and four fields filled all 24 rows, over the
+        # backtitle (cc-core, 2026-10-02): the box keeps within 20
+        import keelbanner
+
+        rows = keelbanner.text_rows(wgscreen.PEER_TEXT, 72)
+
+        assert rows + 4 + 2 + keelbanner.BOX_CHROME + 1 <= 20
+        assert "endpoint" in wgscreen.PEER_TEXT.lower()
+        assert "Keepalive" in wgscreen.PEER_TEXT
+
     def test_the_first_screen(self):
         text = wgcli.overlay_text(THIS_KEY, OVERLAY)
         assert f"This node's public key: {THIS_KEY}" in text
-        assert "Overlay address: fd00:6b65:1::1/64" in text
-        assert "Listen port: 51820" in text
-        assert f"Peers (1):\n  {PEER_KEY}" in text
+        assert "Mesh address (not your LAN): fd00:6b65:1::1/64" in text
+        assert "UDP port: 51820" in text
+        assert f"Peers (1):\n  {PEER_KEY}  fd00:6b65:1::2/128\n" in text
         assert "THIS node's side" in text
+
+    def test_the_first_screen_fits_a_24_row_console(self):
+        # Two peers on two lines each pushed the menu over its buttons
+        # on an 80x24 console (cc-core, 2026-10-02): one line a peer, at
+        # most three of them, every line within the 72 columns inside
+        # the widest box, and room left for the three choices
+        many = {**OVERLAY, "peers": [
+            {"public_key": key, "allowed_ips": [f"fd00:6b65:1::{n}/128"]}
+            for n, key in enumerate([PEER_KEY, OTHER_KEY, THIS_KEY,
+                                     PEER_KEY[::-1], OTHER_KEY[::-1]], 2)]}
+
+        lines = wgcli.overlay_text(THIS_KEY, many).splitlines()
+
+        assert "  and 3 more: Remove peer lists every one" in lines
+        assert sum(PEER_KEY in line or OTHER_KEY in line
+                   for line in lines) == 2
+        assert max(len(line) for line in lines
+                   if line != wgcli.THIS_NODE) <= 72
+        wrapped = sum(max(1, -(-len(line) // 72)) for line in lines)
+        assert wrapped <= 20 - 5 - 5
 
     def test_an_empty_overlay(self):
         text = wgcli.overlay_text(THIS_KEY, {})

@@ -1,4 +1,4 @@
-"""Overlay network (WireGuard): this node's key, address and peers"""
+"""WireGuard mesh: this node's key, address, peers"""
 
 import wgscreen
 from wgcli import TITLE  # noqa: F401 (the title the menu tests read)

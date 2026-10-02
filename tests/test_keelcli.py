@@ -386,6 +386,35 @@ class TestScreens:
             " readable by somebody other than its owner"
         )
 
+    def test_a_table_wider_than_the_box_is_stacked_two_lines_a_field(self):
+        # The four columns wrapped every row in two on an 80 column
+        # console, observed under field (cc-web, 2026-10-02)
+        got = result(14, json.dumps(DIFF_DOCUMENT))
+
+        lines = keelcli.drift_text(got, width=50).splitlines()
+
+        assert lines[:6] == [
+            "instance.hostname: same",
+            "    blog",
+            "instance.fqdn: drift",
+            "    declared blog.example.org, observed shop.example.org",
+            "network.nameservers: same",
+            "    2001:db8:1::53, 2001:db8:1::54",
+        ]
+        assert "security.updates: unknown" in lines
+        assert "diff: 3 same, 1 drift" in "\n".join(lines)
+
+    def test_a_table_that_fits_the_box_stays_a_table(self):
+        got = result(14, json.dumps(DIFF_DOCUMENT))
+
+        assert keelcli.drift_text(got, width=200) == keelcli.drift_text(got)
+
+    def test_text_that_is_not_json_is_shown_as_it_came_at_any_width(self):
+        got = result(1, "", "usage: keel diff")
+
+        assert keelcli.drift_text(got, width=20).startswith(
+            "usage: keel diff")
+
     def test_drift_text_renders_the_table_when_there_is_json(self):
         got = result(14, json.dumps(DIFF_DOCUMENT))
 

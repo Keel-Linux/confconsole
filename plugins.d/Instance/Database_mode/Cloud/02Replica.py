@@ -1,4 +1,4 @@
-"""Replica: this node replicates from another"""
+"""This node replicates from another"""
 
 import dbscreen
 import keelcli
