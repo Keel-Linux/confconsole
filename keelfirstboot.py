@@ -38,6 +38,7 @@ every other hook skips what the description declares. keel-init
 (_TURNKEY_INIT) is an explicit interactive run and asks again.
 """
 
+import glob
 import os
 import shutil
 import sys
@@ -346,11 +347,36 @@ def choose_role(console, path: str, document: dict) -> None:
 
 
 def find_engine(server: dict) -> str:
-    """The declared engine, else the one keel inspect finds, quietly"""
+    """The declared engine, else the one keel inspect finds, quietly
+
+    keel inspect reads the whole machine, which took 2 s on a Web
+    container and 8 s on a quarter of a CPU, a gap with nothing on the
+    screen after the password; with no server binary there is nothing for
+    it to find, so it is not asked.
+    """
     declared = str(server.get("engine") or "")
     if declared:
         return declared
+    if not database_server_installed():
+        return ""
     return dbscreen.observed_engine()[0]
+
+
+def database_server_installed(root: str = "/") -> bool:
+    """Whether a server binary keel inspect looks for is under ROOT
+
+    The binaries are keel's own table (keel.inspect.dbengines.ENGINES), so
+    the two never disagree; when it cannot be read, keel is asked.
+    """
+    try:
+        from keel.inspect.dbengines import ENGINES
+    except ImportError:
+        return True
+    return any(
+        glob.glob(os.path.join(root, pattern))
+        for engine in ENGINES
+        for pattern in engine.server_binaries
+    )
 
 
 def standalone(console, path: str, document: dict, server: dict,

@@ -1,3 +1,16 @@
+confconsole (2.2.3+keel13) trixie; urgency=low
+
+  * The first boot role screen does not run keel inspect on a machine
+    with no database server. keel inspect reads the whole machine to find
+    the engine: 2 s on a Web container, 8 s with a quarter of a CPU, with
+    the password screen still up and nothing new on it (the maintainer's
+    Proxmox console after <Saved>, 2026-10-02). Without any server binary
+    of keel's own table (keel.inspect.dbengines.ENGINES) there is nothing
+    to find, so the role stays standalone at once, and the journal says
+    why as before. When the table cannot be read, keel is asked.
+
+ -- Marcos Méndez <mendez.foto@gmail.com>  Fri, 02 Oct 2026 18:00:00 +0000
+
 confconsole (2.2.3+keel12) trixie; urgency=low
 
   * The Instance menu offers a screen only where what it configures is in
