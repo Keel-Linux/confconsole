@@ -1,4 +1,4 @@
-confconsole (2.2.3+keel10) trixie; urgency=low
+confconsole (2.2.3+keel11) trixie; urgency=low
 
   * Database mode on a machine with no database server says only that:
     the screen appended what keel inspect printed on stderr, which is about
@@ -10,10 +10,60 @@ confconsole (2.2.3+keel10) trixie; urgency=low
     reasons, nothing waiting among them, as when another session had
     confirmed the change already (screenshot 040). It now reads "not
     confirmed: the reason is above", and keel's own line says which.
-  * Numbered keel10 because pull request #16 (the console art) takes
-    keel9.
 
  -- Marcos Méndez <mendez.foto@gmail.com>  Fri, 02 Oct 2026 06:00:00 +0000
+
+confconsole (2.2.3+keel10) trixie; urgency=low
+
+  * Every screen names Keel Linux. The backtitle read "TurnKey GNU/Linux
+    Configuration Console" and, without /etc/appname, the menus were
+    titled "TurnKey Linux <HOSTNAME>"; they read "Keel Linux
+    Configuration Console" and "Keel Linux <HOSTNAME>" (BRAND, TITLE).
+    /etc/appname still names the appliance when it exists. The role and
+    Keel Cloud first boot screens (keelfirstboot.py) read "Keel Linux -
+    First boot configuration", the backtitle of the inithooks dialogs
+    they run between, instead of "Keel - First boot configuration".
+  * Mail relay: "this server" sends mail directly, not "TurnKey servers";
+    the sign up link is Brevo's own page instead of TurnKey's referral
+    link through the TurnKey Hub, and the SendinBlue entry is Brevo's
+    relay, not TurnKey's preferred gateway. Its key is now Brevo, the
+    name the code after the menu already tested for: with the old key
+    the Brevo host and port were never filled in.
+  * Let's Encrypt and the security update settings point at this
+    repository's documentation (docs/Lets_encrypt.rst,
+    docs/System_settings.rst) instead of turnkeylinux.org, and a missing
+    DNS provider list is reported to the confconsole issues here, not to
+    TurnKey.
+  * --help says "Keel Linux Configuration Console" (the module
+    docstring). turnkey-lexicon's help sends problems to the confconsole
+    issues here instead of TurnKey's forum and tracker, and no longer
+    calls confconsole TurnKey's.
+  * Kept: the turnkey-lexicon and turnkey-install-security-updates
+    commands (installed names, run by the screens), the Python class
+    name TurnkeyConsole, the package dependencies on turnkey-netinfo and
+    turnkey-conffile, and the copyright notices. The docs/ and README
+    still describe TurnKey; they are not shown on an appliance.
+  * tests/test_brand.py checks the backtitle, the appname and that no
+    string of a shipped screen names TurnKey or TKLBAM.
+
+ -- Marcos Méndez <mendez.foto@gmail.com>  Fri, 02 Oct 2026 04:00:00 +0000
+
+confconsole (2.2.3+keel9) trixie; urgency=low
+
+  * Usage screen: the maintainer's console art in tiers. keelbanner picks
+    the largest that the dialog has room for, in the order wide (the mark
+    with the KEEL LINUX lettering, the tagline and KEELLINUX.ORG), full,
+    small, none, from the files keel-core installs in /etc/keel.
+  * The room is measured as dialog uses it: the screen less the backtitle
+    and the shadow, and the box's own text wrapped at its width plus its
+    frame and button. The box widens for a mark wider than it and grows
+    by the mark's rows, never past the room, so the addresses keep every
+    line. The 24 row floor and the fixed 25 row box of the first version
+    no longer decide.
+  * UTF-8 tiers when the locale dialog inherits is UTF-8 (LC_ALL,
+    LC_CTYPE, LANG), the ASCII ones otherwise.
+
+ -- Marcos Méndez <mendez.foto@gmail.com>  Thu, 01 Oct 2026 21:00:00 +0000
 
 confconsole (2.2.3+keel8) trixie; urgency=low
 

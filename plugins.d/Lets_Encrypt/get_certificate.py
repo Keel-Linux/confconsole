@@ -19,11 +19,10 @@ To generate a single certificate for up to five domains (including subdomains),
 enter each domain into a box, one domain per box. Empty boxes will be ignored.
 
 Wildcard domains are supported, but only when using DNS-01 challenge. Alias
-will be auto generated, so should not be entered here. See:
-https://www.turnkeylinux.org/docs/confconsole/letsencrypt#wildcard
+will be auto generated, so should not be entered here.
 
-To generate multiple certificates, please consult the advanced docs:
-https://www.turnkeylinux.org/docs/letsencrypt#advanced
+For wildcards and for multiple certificates, please consult the docs:
+https://github.com/Keel-Linux/confconsole/blob/master/docs/Lets_encrypt.rst
 """
 
 dehydrated_conf = "/etc/dehydrated"
@@ -245,7 +244,8 @@ def run() -> None:
             "Error",
             f"Dehydrated not installed or {dehydrated_conf} not found,"
             " dehydrated can be installed via apt from the Debian repos.\n\n"
-            "More info: www.turnkeylinux.org/docs/letsencrypt",
+            "More info: https://github.com/Keel-Linux/confconsole/blob/"
+            "master/docs/Lets_encrypt.rst",
             autosize=True,
         )
         return
@@ -304,7 +304,8 @@ def run() -> None:
             if not providers:
                 console.msgbox(
                     "Error",
-                    "No providers found, please report to TurnKey",
+                    "No providers found, please report it at"
+                    " https://github.com/Keel-Linux/confconsole/issues",
                     autosize=True,
                 )
                 return
@@ -360,8 +361,8 @@ def run() -> None:
         ret, values = console.form(
             "Lexicon configuration",
             "Review and adjust current lexicon configuration as"
-            "necessary.\n\n Please see https://www.turnkeylinux.org/docs/"
-            "confconsole/letsencrypt#dns-01",
+            "necessary.\n\n Please see https://github.com/Keel-Linux/"
+            "confconsole/blob/master/docs/Lets_encrypt.rst",
             fields,
             autosize=True,
         )
