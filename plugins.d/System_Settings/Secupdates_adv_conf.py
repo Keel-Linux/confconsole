@@ -8,10 +8,13 @@ FILE_PATH = "/etc/cron-apt/action.d/5-install"
 CONF_DEFAULT = "/etc/cron-apt/action-available.d/5-install.default"
 CONF_ALT = "/etc/cron-apt/action-available.d/5-install.alt"
 
-doc_url = "www.turnkeylinux.org/secupdates#issue-res"
+doc_url = (
+    "https://github.com/Keel-Linux/confconsole/blob/master/docs/"
+    "System_settings.rst"
+)
 
 info_default = """
-This is the historic and default TurnKey cronapt behaviour. Only packages \
+This is the historic and default cron-apt behaviour. Only packages \
 from the repos listed in security.sources.list will be installed. \
 Missing dependencies (extremely rare) will not be installed and will cause \
 package removal. This package removal may cause one or more services to fail.\

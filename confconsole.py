@@ -40,6 +40,11 @@ USAGE: str = __doc__ if __doc__ else ""
 PLUGIN_PATH = os.path.join(
     os.path.dirname(os.path.realpath(__file__)), "plugins.d"
 )
+# The name at the top of every screen and, unless APPNAME_PATH names the
+# appliance otherwise, before the hostname in the menu titles.
+BRAND = "Keel Linux"
+TITLE = f"{BRAND} Configuration Console"
+APPNAME_PATH = "/etc/appname"
 
 handler = JournalHandler(SYSLOG_IDENTIFIER="confconsole")
 handler.setFormatter(logging.Formatter("%(name)s: %(message)s"))
@@ -399,20 +404,19 @@ class TurnkeyConsole:
         eventManager: plugin.EventManager,
         advanced_enabled: bool = True,
     ) -> None:
-        title = "TurnKey GNU/Linux Configuration Console"
         self.width = 65
         self.height = 25
 
-        self.console = Console(title, self.width, self.height)
+        self.console = Console(TITLE, self.width, self.height)
 
         # sometimes it would be nice to have the appname be something other
         # than the hostname. Allow developers to create  file containing the
         # appname in /etc/appname
         try:
-            with open("/etc/appname", 'r') as fob:
+            with open(APPNAME_PATH, 'r') as fob:
                 self.appname = fob.read().rstrip()
         except FileNotFoundError:
-            self.appname = f"TurnKey Linux {netinfo.get_hostname().upper()}"
+            self.appname = f"{BRAND} {netinfo.get_hostname().upper()}"
 
         self.installer = Installer(path="/usr/bin/di-live")
 

@@ -1,3 +1,34 @@
+confconsole (2.2.3+keel10) trixie; urgency=low
+
+  * Every screen names Keel Linux. The backtitle read "TurnKey GNU/Linux
+    Configuration Console" and, without /etc/appname, the menus were
+    titled "TurnKey Linux <HOSTNAME>"; they read "Keel Linux
+    Configuration Console" and "Keel Linux <HOSTNAME>" (BRAND, TITLE).
+    /etc/appname still names the appliance when it exists. The role and
+    Keel Cloud first boot screens (keelfirstboot.py) read "Keel Linux -
+    First boot configuration", the backtitle of the inithooks dialogs
+    they run between, instead of "Keel - First boot configuration".
+  * Mail relay: "this server" sends mail directly, not "TurnKey servers";
+    the sign up link is Brevo's own page instead of TurnKey's referral
+    link through the TurnKey Hub, and the SendinBlue entry is Brevo's
+    relay, not TurnKey's preferred gateway. Its key is now Brevo, the
+    name the code after the menu already tested for: with the old key
+    the Brevo host and port were never filled in.
+  * Let's Encrypt and the security update settings point at this
+    repository's documentation (docs/Lets_encrypt.rst,
+    docs/System_settings.rst) instead of turnkeylinux.org, and a missing
+    DNS provider list is reported to the confconsole issues here, not to
+    TurnKey.
+  * Kept: the turnkey-lexicon and turnkey-install-security-updates
+    commands (installed names, run by the screens), the Python class
+    name TurnkeyConsole, the package dependencies on turnkey-netinfo and
+    turnkey-conffile, and the copyright notices. The docs/ and README
+    still describe TurnKey; they are not shown on an appliance.
+  * tests/test_brand.py checks the backtitle, the appname and that no
+    string of a shipped screen names TurnKey or TKLBAM.
+
+ -- Marcos Méndez <mendez.foto@gmail.com>  Fri, 02 Oct 2026 04:00:00 +0000
+
 confconsole (2.2.3+keel9) trixie; urgency=low
 
   * Usage screen: the maintainer's console art in tiers. keelbanner picks

@@ -10,11 +10,11 @@ import subprocess
 TITLE = "Mail Relay"
 
 TEXT = (
-    "By default, TurnKey servers send e-mail directly. An SMTP relay provides"
+    "By default, this server sends e-mail directly. An SMTP relay provides"
     " more robust mail deliverability.\n\n"
-    "Send up to 9000 emails per month with a free Brevo account. To sign up,"
-    " open the below URL in your web browser and follow the prompts:\n\n"
-    "https://hub.turnkeylinux.org/email"
+    "Brevo (formerly SendinBlue) offers a free plan. To sign up, open the"
+    " below URL in your web browser and follow the prompts:\n\n"
+    "https://www.brevo.com/"
 )
 
 FORMNOTE = (
@@ -81,7 +81,7 @@ def run():
         TITLE,
         TEXT,
         [
-            ("SendinBlue", "TurnKey's preferred SMTP gateway"),
+            ("Brevo", "Brevo (formerly SendinBlue) SMTP relay"),
             ("Custom", "Custom mail relay configuration"),
             ("Deconfigure", "Erase current mail relay settings"),
         ],
