@@ -42,9 +42,9 @@ spec.
 |                   | and the first boot asks them no role                   |
 +-------------------+--------------------------------------------------------+
 | Overlay network   | the ``wireguard`` overlay is in the chain. In the menu |
-|                   | in ``cloud_simple`` and ``cloud_advanced``, or once    |
-|                   | the spec enables or configures the overlay; otherwise  |
-|                   | behind **Advanced**                                    |
+|                   | in ``cloud_simple`` and ``cloud_advanced``; otherwise  |
+|                   | behind **Advanced**, configured or not, so it never    |
+|                   | moves once an address or a peer is applied             |
 +-------------------+--------------------------------------------------------+
 | Keel Cloud        | only once Keel Cloud exists: ``/etc/keel/cloud-        |
 |                   | endpoint`` holds the service's endpoint. Hidden by     |

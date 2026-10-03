@@ -23,8 +23,11 @@ The rules, by the entry's path under plugins.d:
   PostgreSQL it notes that and changes nothing, so their Database mode
   offers Standalone only rather than roles nothing would make.
 - Instance/Overlay_network.py: the wireguard overlay in the chain. It is
-  in the Instance menu in the cloud modes, or once this node uses the
-  overlay; in a simple installation it is behind Advanced.
+  in the Instance menu in the cloud modes, where joining nodes is the
+  point; in a simple installation it is behind Advanced, configured or
+  not. Its place follows the installation mode alone, so it does not
+  move when the first address or peer is applied (it did, and Advanced
+  went with it: the maintainer took it for gone, 2026-10-03).
 - Instance/Keel_Cloud.py: hidden until Keel Cloud exists, which is when
   CLOUD_ENDPOINT holds the endpoint of the service: one https URL with a
   host (a bracketed IPv6 literal allowed), in a regular file root owns
@@ -46,7 +49,6 @@ from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 import keelcli
-import wgcli
 
 log = logging.getLogger("keelmenu")
 
@@ -63,7 +65,6 @@ DATA_ENGINES = frozenset({"mariadb", "postgresql", "redis"})
 # Those whose primary and replica keel applies, not only validates
 REPLICATING_ENGINES = frozenset({"mariadb"})
 WIREGUARD = "wireguard"
-ENABLED = "enabled"
 OK = "ok"
 
 SHOW = "show"
@@ -93,7 +94,6 @@ class Machine:
 
     chain: Chain | None
     mode: str
-    uses_overlay: bool
     server_engine: str = ""
     has_server: bool = False
 
@@ -138,10 +138,8 @@ def machine() -> Machine:
     name = _section(document, "appliance").get("name")
     chain = chain_of(name) if name else None
     mode = str(_section(document, "installation").get("mode") or "")
-    uses = (_section(document, "overlays").get(WIREGUARD) == ENABLED
-            or bool(wgcli.overlay_of(document)))
     server = keelcli.server_of(document)
-    return Machine(chain, mode, uses, str(server.get("engine") or ""),
+    return Machine(chain, mode, str(server.get("engine") or ""),
                    bool(server))
 
 
@@ -213,7 +211,7 @@ def _replication(found: Machine) -> str:
 def _overlay(found: Machine) -> str:
     if found.chain is not None and WIREGUARD not in found.chain.overlays:
         return HIDE
-    if found.mode in CLOUD_MODES or found.uses_overlay:
+    if found.mode in CLOUD_MODES:
         return SHOW
     return ADVANCED
 

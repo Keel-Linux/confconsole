@@ -93,7 +93,6 @@ class TestTheMachine:
 
         assert found.chain.overlays == frozenset(WEB)
         assert found.mode == "cloud_simple"
-        assert found.uses_overlay is False
 
     def test_a_spec_that_names_no_appliance_leaves_the_chain_unknown(
         self, chains, spec
@@ -128,21 +127,11 @@ class TestTheMachine:
         assert found.chain is None
         assert found.mode == ""
 
-    def test_an_enabled_wireguard_overlay_is_in_use(self, chains, spec):
-        spec("web", overlays={"wireguard": "enabled"})
-
-        assert keelmenu.machine().uses_overlay is True
-
-    def test_a_declared_overlay_address_is_in_use(self, chains, spec):
-        spec("web", network={"overlay": {"wireguard": {
-            "address": "fd00:6b65:1::1/64"}}})
-
-        assert keelmenu.machine().uses_overlay is True
 
 
-def machine(name, mode="simple", uses_overlay=False, chains=None):
+def machine(name, mode="simple", chains=None):
     chain = keelmenu.chain_of(name) if name else None
-    return keelmenu.Machine(chain, mode, uses_overlay)
+    return keelmenu.Machine(chain, mode)
 
 
 class TestDatabaseMode:
@@ -175,7 +164,7 @@ class TestDatabaseMode:
     def test_a_declared_server_shows_it_whatever_the_chain(self, chains):
         # a description that holds database.server is a server to
         # configure, even where the manifests name no engine
-        found = keelmenu.Machine(keelmenu.chain_of("web"), "simple", False,
+        found = keelmenu.Machine(keelmenu.chain_of("web"), "simple",
                                  server_engine="mariadb", has_server=True)
 
         assert keelmenu.place(DATABASE, found) == keelmenu.SHOW
@@ -200,7 +189,7 @@ class TestReplication:
         assert keelmenu.place(REPLICATION, machine("db")) == keelmenu.HIDE
 
     def test_a_declared_mariadb_server_replicates(self, chains):
-        found = keelmenu.Machine(keelmenu.chain_of("web"), "simple", False,
+        found = keelmenu.Machine(keelmenu.chain_of("web"), "simple",
                                  server_engine="mariadb", has_server=True)
 
         assert keelmenu.place(REPLICATION, found) == keelmenu.SHOW
@@ -229,10 +218,29 @@ class TestOverlayNetwork:
         assert keelmenu.place(OVERLAY, machine("web", mode)) == (
             keelmenu.ADVANCED)
 
-    def test_in_the_menu_once_this_node_uses_the_overlay(self, chains):
-        found = machine("web", "simple", uses_overlay=True)
+    @pytest.mark.parametrize("configured", [
+        {"overlays": {"wireguard": "enabled"}},
+        {"network": {"overlay": {"wireguard": {
+            "address": "fd00:6b65:1::1/64"}}}},
+    ])
+    def test_it_stays_behind_advanced_once_configured(self, chains, spec,
+                                                      configured):
+        # It moved to the Instance menu once the spec had an overlay, and
+        # Advanced went away with it: on keel-web-2 the maintainer took
+        # it for gone (2026-10-03). One place for the life of the node.
+        spec("web", **configured)
 
-        assert keelmenu.place(OVERLAY, found) == keelmenu.SHOW
+        assert keelmenu.place(OVERLAY, keelmenu.machine()) == (
+            keelmenu.ADVANCED)
+        assert keelmenu.overlay_where() == "Advanced > Overlay network"
+
+    @pytest.mark.parametrize("mode", ["cloud_simple", "cloud_advanced"])
+    def test_a_cloud_mode_keeps_it_in_the_menu_once_configured(
+        self, chains, spec, mode
+    ):
+        spec("web", mode, overlays={"wireguard": "enabled"})
+
+        assert keelmenu.place(OVERLAY, keelmenu.machine()) == keelmenu.SHOW
 
     def test_hidden_where_the_chain_carries_no_wireguard(self, chains):
         chains["bare"] = resolved([overlay("installer")])

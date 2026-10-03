@@ -347,6 +347,35 @@ class TestTheMenuThisMachineShows:
 
         assert tags(console, 1) == ["Overlay network"]
 
+    @pytest.mark.parametrize("appliance", ["web", "core"])
+    def test_a_configured_overlay_stays_behind_advanced(self, instance,
+                                                        appliance):
+        # the same two menus before and after the first peer, so the
+        # screen is where the operator found it (keel-web-2, 2026-10-03)
+        overlay = {"overlay": {"wireguard": {
+            "address": "fd00:6b65:1::1/64", "peers": [{
+                "public_key": "0niNkgzhpbKmTSrWCzukb6jaYogKZkGhW+xWlh52Mh8=",
+                "allowed_ips": ["fd00:6b65:1::2/128"]}]}}}
+        menu, console = instance(
+            appliance, menus=[("ok", "Advanced"), ("ok", "Overlay network")],
+            overlays={"wireguard": "enabled"}, network=overlay)
+
+        assert menu.run() == str(INSTANCE_DIR / "Overlay_network.py")
+
+        assert sorted(tags(console)) == sorted(PLAIN + ["Advanced"])
+        assert tags(console, 1) == ["Overlay network"]
+
+    @pytest.mark.parametrize("mode", ["cloud_simple", "cloud_advanced"])
+    def test_a_cloud_mode_with_an_overlay_has_no_empty_advanced(
+        self, instance, mode
+    ):
+        menu, console = instance("web", mode,
+                                 overlays={"wireguard": "enabled"})
+
+        menu.run()
+
+        assert sorted(tags(console)) == sorted(PLAIN + ["Overlay network"])
+
     def test_back_from_advanced_reopens_the_instance_menu(self, instance):
         menu, console = instance(
             "core", menus=[("ok", "Advanced"), ("cancel", "")])

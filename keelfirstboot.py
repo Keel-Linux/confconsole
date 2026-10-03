@@ -488,7 +488,8 @@ def finish(console, path: str, role: str) -> None:
 def later(console, role: str, overlay_done: bool) -> None:
     lines = [LATER_TEXT]
     if not overlay_done:
-        # behind Advanced in a simple installation, until it is in use
+        # behind Advanced in a simple installation, in the cloud modes
+        # in the Instance menu itself
         lines.append(f"  {keelmenu.overlay_where()}: this node's address"
                      " and peers")
     lines.append(f"  {MODE_WHERE[role]}")
