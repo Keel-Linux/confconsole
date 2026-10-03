@@ -32,6 +32,8 @@ ADDRESS_TEXT = (
     "UDP port: the UDP port the other nodes reach this one on (blank:"
     " 51820)."
 )
+PEER_FIELDS = ("Its public key", "Its mesh address", "Its endpoint",
+               "Keepalive (seconds)")
 PEER_TEXT = (
     "Another node this one accepts on the mesh, as that node's own"
     " screen shows it.\n\n"
@@ -59,7 +61,7 @@ def run(console) -> None:
         )
         if code != OK:
             return
-        ACTIONS[choice](console, path, document, wireguard)
+        ACTIONS[choice](console, path, document, wireguard, key)
 
 
 def choices(wireguard: dict) -> list[tuple[str, str]]:
@@ -101,7 +103,8 @@ def ask(console, text: str, fields: list) -> list | None:
     return values if code == OK else None
 
 
-def set_address(console, path: str, document: dict, wireguard: dict):
+def set_address(console, path: str, document: dict, wireguard: dict,
+                key: str):
     address = str(wireguard.get("address") or suggested(console))
     port = str(wireguard.get("listen_port") or "")
     values = ask(console, ADDRESS_TEXT, [
@@ -114,22 +117,44 @@ def set_address(console, path: str, document: dict, wireguard: dict):
         document, wgcli.with_address(wireguard, *values)))
 
 
-def add_peer(console, path: str, document: dict, wireguard: dict):
-    values = ask(console, PEER_TEXT, [
-        ("Its public key", "", 20, 46),
-        ("Its mesh address", "", 20, 46),
-        ("Its endpoint", "", 20, 46),
-        ("Keepalive (seconds)", wgcli.DEFAULT_KEEPALIVE, 20, 46),
-    ])
-    if values is None:
-        return
-    key, address, endpoint, keepalive = values
-    peer = wgcli.peer_entry(key, endpoint, address, keepalive)
+def add_peer(console, path: str, document: dict, wireguard: dict,
+             key: str):
+    """Another node; never this one, and asked about off its prefix
+
+    `key` is this node's own public key. A refusal or a No goes back to
+    the form with what was typed, so one wrong field is all that is
+    typed again.
+    """
+    values = ["", "", "", wgcli.DEFAULT_KEEPALIVE]
+    while True:
+        values = ask(console, PEER_TEXT, [
+            (label, value, 20, 46) for label, value in zip(PEER_FIELDS,
+                                                           values)
+        ])
+        if values is None:
+            return
+        if accepted(console, wireguard, key, values):
+            break
+    public, address, endpoint, keepalive = values
+    peer = wgcli.peer_entry(public, endpoint, address, keepalive)
     apply(console, path, wgcli.with_overlay(
         document, wgcli.with_peer(wireguard, peer)))
 
 
-def remove_peer(console, path: str, document: dict, wireguard: dict):
+def accepted(console, wireguard: dict, key: str, values: list) -> bool:
+    """Whether the peer typed is another node, the operator's word taken
+    for one outside this node's prefix"""
+    public, address = values[0], values[1]
+    problem = wgcli.peer_problem(key, wireguard, public, address)
+    if problem:
+        console.msgbox(wgcli.TITLE, problem, autosize=True)
+        return False
+    question = wgcli.outside_prefix(wireguard, address)
+    return not question or console.yesno(question, autosize=True) == OK
+
+
+def remove_peer(console, path: str, document: dict, wireguard: dict,
+                key: str):
     code, key = console.menu(
         wgcli.TITLE, "Stop accepting which node?",
         wgcli.peer_choices(wireguard),

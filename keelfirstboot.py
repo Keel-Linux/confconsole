@@ -450,7 +450,7 @@ def overlay(console, path: str, role: str) -> str | None:
             return None
         if choice == CONTINUE:
             return key
-        wgscreen.ACTIONS[choice](console, path, document, wireguard)
+        wgscreen.ACTIONS[choice](console, path, document, wireguard, key)
 
 
 def overlay_choices(role: str, wireguard: dict) -> list[tuple[str, str]]:

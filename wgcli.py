@@ -112,6 +112,75 @@ def host_prefix(address: str) -> str:
     return f"{value}/{value.max_prefixlen}"
 
 
+OWN_KEY = (
+    "That is this node's own public key, the one at the top of the"
+    " overlay screen. A node is never its own peer: enter the OTHER"
+    " node's key, as that node's own Overlay network screen shows it."
+)
+OWN_ADDRESS = (
+    "{address} is this node's own mesh address. Enter the OTHER node's"
+    " mesh address, as that node's own screen shows it (::2, ::3 on"
+    " this node's /64)."
+)
+OUTSIDE = (
+    "{peer} is outside this node's mesh prefix, {network} (this node is"
+    " {address}).\n\nThe nodes of a set normally share one /64: the"
+    " first node's, the others taking ::2, ::3 on it. A peer is routed"
+    " as one host (/128), so this still works.\n\nAdd it anyway?"
+)
+# the fields of the overlay that hold this node's own addresses
+OWN_FIELDS = ("address", "ipv4_address")
+
+
+def interface_of(text: str):
+    """An address with or without its prefix, or None when it is not one"""
+    try:
+        return ipaddress.ip_interface(str(text).strip())
+    except ValueError:
+        return None
+
+
+def own_interfaces(wireguard: dict) -> list:
+    """This node's overlay addresses, each with its prefix"""
+    found = (interface_of(wireguard.get(name) or "") for name in OWN_FIELDS)
+    return [one for one in found if one is not None]
+
+
+def peer_problem(own_key: str, wireguard: dict, key: str,
+                 address: str) -> str:
+    """Why a peer is this node itself, or "" when it is not
+
+    Only what is this node's own is refused here; anything else that is
+    wrong (a key that is not one, an address that does not parse) is
+    keel's to refuse, in its own words, when the description is staged.
+    """
+    if key.strip() and key.strip() == own_key.strip():
+        return OWN_KEY
+    peer = interface_of(address)
+    for own in own_interfaces(wireguard):
+        if peer is not None and peer.ip == own.ip:
+            return OWN_ADDRESS.format(address=own.ip)
+    return ""
+
+
+def outside_prefix(wireguard: dict, address: str) -> str:
+    """The question to ask when a peer is outside this node's prefix
+
+    "" when it is inside one of them, or when either side is not an
+    address yet. keel routes a peer by /128 (host_prefix), so a peer on
+    another prefix still works; it is asked about because it is most
+    often a node of another set, or a typo.
+    """
+    peer = interface_of(address)
+    own = own_interfaces(wireguard)
+    if peer is None or not own:
+        return ""
+    if any(peer.ip in one.network for one in own):
+        return ""
+    return OUTSIDE.format(peer=peer.ip, network=own[0].network,
+                          address=own[0])
+
+
 def peer_entry(public_key: str, endpoint: str, address: str,
                keepalive: str) -> dict:
     """One peer as the description holds it; blank fields are left out"""

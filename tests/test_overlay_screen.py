@@ -327,6 +327,71 @@ class TestTexts:
         assert wgcli.APPLY[:3] == ["spec", "apply", "--system-only"]
 
 
+class TestNotItself:
+    """keel-web-2, 2026-10-03: the maintainer typed the node's own public
+    key, shown at the top of the same screen, as a peer"""
+
+    NODE = {"address": "fdbc:cc61:347f::1/64"}
+
+    def test_its_own_key_is_refused(self):
+        problem = wgcli.peer_problem(THIS_KEY, self.NODE, f" {THIS_KEY} ",
+                                     "fdbc:cc61:347f::2")
+        assert "this node's own public key" in problem
+        assert "OTHER node" in problem
+
+    @pytest.mark.parametrize("typed", [
+        "fdbc:cc61:347f::1", "fdbc:cc61:347f::1/64",
+        " FDBC:CC61:347F:0:0:0:0:1/128 "])
+    def test_its_own_address_is_refused(self, typed):
+        problem = wgcli.peer_problem(THIS_KEY, self.NODE, PEER_KEY, typed)
+        assert "fdbc:cc61:347f::1 is this node's own mesh address" in problem
+
+    def test_its_own_ipv4_address_is_refused(self):
+        node = {**self.NODE, "ipv4_address": "10.66.0.1/24"}
+        problem = wgcli.peer_problem(THIS_KEY, node, PEER_KEY, "10.66.0.1")
+        assert "10.66.0.1 is this node's own mesh address" in problem
+
+    @pytest.mark.parametrize("node, typed", [
+        (NODE, "fdbc:cc61:347f::2"),
+        (NODE, "node2"),
+        ({}, "fdbc:cc61:347f::1"),
+        ({"address": "not an address"}, "fdbc:cc61:347f::1"),
+    ])
+    def test_another_node_or_what_keel_judges_passes(self, node, typed):
+        # what is not an address is keel's to refuse, with its own words
+        assert wgcli.peer_problem(THIS_KEY, node, PEER_KEY, typed) == ""
+
+    def test_a_peer_outside_the_prefix_is_asked_about(self):
+        question = wgcli.outside_prefix(self.NODE, "fd11:a58a:88ef::2")
+        assert "fd11:a58a:88ef::2 is outside this node's mesh prefix" in (
+            question)
+        assert "fdbc:cc61:347f::/64" in question
+        assert "still works" in question
+        assert question.endswith("Add it anyway?")
+
+    @pytest.mark.parametrize("node, typed", [
+        (NODE, "fdbc:cc61:347f::2"),
+        (NODE, "fdbc:cc61:347f::2/64"),
+        ({**NODE, "ipv4_address": "10.66.0.1/24"}, "10.66.0.2"),
+        (NODE, "node2"),
+        ({}, "fd11:a58a:88ef::2"),
+        ({"address": "junk"}, "fd11:a58a:88ef::2"),
+    ])
+    def test_inside_the_prefix_or_unknown_asks_nothing(self, node, typed):
+        assert wgcli.outside_prefix(node, typed) == ""
+
+    def test_the_texts_fit_an_80_column_console(self):
+        import keelbanner
+
+        for text in (
+            wgcli.peer_problem(THIS_KEY, self.NODE, THIS_KEY, ""),
+            wgcli.peer_problem(THIS_KEY, self.NODE, PEER_KEY,
+                               "fdbc:cc61:347f::1"),
+            wgcli.outside_prefix(self.NODE, "fd11:a58a:88ef:1234::2"),
+        ):
+            assert keelbanner.text_rows(text, 72) + 5 <= 20
+
+
 class TestScreen:
     def test_the_entry_hands_its_console_to_the_screen(self, keel, spec):
         spec(BASE)
@@ -561,6 +626,71 @@ class TestScreen:
 
         assert read(path)["network"]["overlay"]["wireguard"]["peers"] == []
         assert commands(keel).count("spec apply --system-only") == 1
+
+    def test_its_own_key_is_refused_and_the_form_kept(self, keel, spec):
+        path = spec(wgcli.with_overlay(BASE, OVERLAY))
+        before = path.read_text()
+        typed = [THIS_KEY, "fd00:6b65:1::3", "[2001:db8::30]:51820", "25"]
+        console = FakeConsole(
+            menus=[("ok", wgscreen.ADD), ("cancel", "")],
+            forms=[("ok", typed), ("cancel", [])],
+        )
+
+        wgscreen.run(console)
+
+        assert path.read_text() == before
+        assert "spec validate" not in " ".join(commands(keel))
+        texts = [call[2] for call in console.calls if call[0] == "msgbox"]
+        assert "this node's own public key" in texts[0]
+        forms = [call for call in console.calls if call[0] == "form"]
+        assert [field[3] for field in forms[1][2]] == typed
+
+    def test_its_own_address_is_refused(self, keel, spec):
+        path = spec(wgcli.with_overlay(BASE, OVERLAY))
+        before = path.read_text()
+        console = FakeConsole(
+            menus=[("ok", wgscreen.ADD), ("cancel", "")],
+            forms=[("ok", [OTHER_KEY, "fd00:6b65:1::1", "", ""]),
+                   ("cancel", [])],
+        )
+
+        wgscreen.run(console)
+
+        assert path.read_text() == before
+        texts = [call[2] for call in console.calls if call[0] == "msgbox"]
+        assert "this node's own mesh address" in texts[0]
+
+    def test_outside_the_prefix_no_goes_back_to_the_form(self, keel, spec):
+        path = spec(wgcli.with_overlay(BASE, OVERLAY))
+        before = path.read_text()
+        console = FakeConsole(
+            menus=[("ok", wgscreen.ADD), ("cancel", "")],
+            forms=[("ok", [OTHER_KEY, "fd11:a58a:88ef::2", "", ""]),
+                   ("cancel", [])],
+            yesno=["cancel"],
+        )
+
+        wgscreen.run(console)
+
+        assert path.read_text() == before
+        asked = [call[1] for call in console.calls if call[0] == "yesno"]
+        assert "outside this node's mesh prefix" in asked[0]
+        forms = [call for call in console.calls if call[0] == "form"]
+        assert forms[1][2][1][3] == "fd11:a58a:88ef::2"
+
+    def test_outside_the_prefix_yes_adds_it(self, keel, spec):
+        path = spec(wgcli.with_overlay(BASE, OVERLAY))
+        console = FakeConsole(
+            menus=[("ok", wgscreen.ADD), ("cancel", "")],
+            forms=[("ok", [OTHER_KEY, "fd11:a58a:88ef::2", "", ""])],
+            yesno=["ok"],
+        )
+
+        wgscreen.run(console)
+
+        peers = read(path)["network"]["overlay"]["wireguard"]["peers"]
+        assert peers[-1] == {"public_key": OTHER_KEY,
+                             "allowed_ips": ["fd11:a58a:88ef::2/128"]}
 
 
 FIRST_WITH_OVERLAY = (0, 11)

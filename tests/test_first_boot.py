@@ -697,12 +697,15 @@ class TestTheOverlayStep:
         """The overlay screen's own actions, each writing what it would"""
         ran = []
 
-        def set_address(console, path, document, wireguard):
+        def set_address(console, path, document, wireguard, key):
+            # this node's own key, which Add peer refuses as a peer
+            assert key == THIS_KEY.strip()
             ran.append("address")
             spec({"version": 1, "network": {"overlay": {
                 "wireguard": OVERLAY}}})
 
-        def add_peer(console, path, document, wireguard):
+        def add_peer(console, path, document, wireguard, key):
+            assert key == THIS_KEY.strip()
             ran.append("peer")
             spec({"version": 1, "network": {"overlay": {"wireguard": {
                 **OVERLAY, "peers": [PEER]}}}})
