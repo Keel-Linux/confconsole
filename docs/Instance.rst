@@ -153,7 +153,20 @@ Add peer
   address (routed as one host, ``/128``), its endpoint (``host:port``, an
   IPv6 address in brackets, ``[2001:db8::20]:51820``; blank when that node
   reaches this one) and a keepalive in seconds (25 by default, blank for
-  none). A peer with a key already there replaces it.
+  none). A peer with a key already there replaces it. This node's own
+  public key, and one of this node's own mesh addresses, are refused; an
+  address outside this node's prefix is asked about (a peer is routed as
+  one host, so it still works). Either way the form comes back with what
+  was typed.
+
+Confirm now
+  First, while a network change waits for its confirmation; the screen's
+  first line then says the time it reverts at, in UTC. It runs ``keel
+  network confirm`` from this session and shows keel's verdict: keel
+  accepts it from the machine's console (or a process attached from a
+  container's host) and from an SSH session opened after the change over
+  the new configuration, and refuses it from a session opened before. The
+  screen does not judge the session itself.
 
 Remove peer
   Pick the peer by its key; the screen asks before removing it.
@@ -177,10 +190,14 @@ change waits after apply: one this run brought up, even if a later step
 failed; one that failed and could not be rolled back either, which keel
 leaves to its revert timer; or one an earlier run left, which keel names
 when it refuses another. It needs keel 0.11.0 or later, the first with
-``--skip-uplink``, which the package recommends. It then offers to confirm from here: keel accepts that from the
-machine's own console, and refuses it from an SSH session opened before
-the change, in which case the change reverts unless a new session
-confirms it.
+``--skip-uplink``, which the package recommends. It then offers to
+confirm from here, Yes by default: keel accepts that from the machine's
+own console, and refuses it, changing nothing, from an SSH session
+opened before the change. When the change still waits after that (No,
+or a refusal), the screen gives the time it reverts at, in UTC, read
+from keel's marker (``/var/lib/keel/network/pending.json``: the window
+starts when the interface comes up), and the command, ``keel network
+confirm``, to run from a new session.
 
 Headless equivalent: edit ``network.overlay.wireguard`` in the
 description, ``keel spec apply --system-only --skip-uplink``, then ``keel

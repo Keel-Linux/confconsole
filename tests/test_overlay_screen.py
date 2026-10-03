@@ -11,6 +11,9 @@ the screen builds to a real `keel spec validate` when one is on PATH.
 import os
 import shutil
 import subprocess
+import sys
+import types
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -42,8 +45,54 @@ APPLIED = (
 )
 
 
+NOW = datetime(2026, 10, 3, 14, 30, 35, tzinfo=UTC)
+REFUSED = (
+    "Error: refused: this SSH session was open before the change, so it"
+    " does not show the new network works; open a new one to the new"
+    " address and confirm from there\n"
+)
+
+
 def make_result(argv, code=0, stdout="", stderr=""):
     return keelcli.Result(("keel", *argv), code, stdout, stderr)
+
+
+@pytest.fixture(autouse=True)
+def marker(monkeypatch, tmp_path):
+    """keel.network.marker over a change a test puts in `pending`
+
+    Nothing waits until a test says so, so no test reads the marker of
+    the machine it runs on. `pending` is what marker.read returns (None
+    for a marker that cannot be read), `clock` what marker.clock does.
+    """
+    state = {"exists": False, "pending": None, "clock": None, "roots": []}
+    module = types.ModuleType("keel.network.marker")
+
+    def exists(root):
+        state["roots"].append(root)
+        return state["exists"]
+
+    module.exists = exists
+    module.read = lambda root: state["pending"]
+    module.clock = lambda kind: state["clock"]
+    network = types.ModuleType("keel.network")
+    network.marker = module
+    package = types.ModuleType("keel")
+    package.network = network
+    monkeypatch.setitem(sys.modules, "keel", package)
+    monkeypatch.setitem(sys.modules, "keel.network", network)
+    monkeypatch.setitem(sys.modules, "keel.network.marker", module)
+    state["utc_now"] = wgscreen.utc_now
+    monkeypatch.setattr(wgscreen, "utc_now", lambda: NOW)
+
+    def waits(window=120, changed_at=1000.0, clock=1030.0, kind="overlay"):
+        state["exists"] = True
+        state["pending"] = types.SimpleNamespace(
+            window=window, changed_at=changed_at, kind=kind)
+        state["clock"] = clock
+
+    state["waits"] = waits
+    return state
 
 
 @pytest.fixture
@@ -243,6 +292,56 @@ class TestTexts:
         assert "REVERTS BY ITSELF" in text
         assert "keel network confirm" in text
         assert "the spec was applied" in text
+
+    def test_the_question_makes_yes_safe_to_try(self):
+        # The maintainer answered No over SSH, as the question told him
+        # to, and both nodes reverted two minutes later (2026-10-03).
+        # dialog's yesno defaults to Yes; the text no longer steers to No
+        question = wgcli.CONFIRM_QUESTION
+        assert "Yes is safe to try" in question
+        assert "Answer No" not in question
+        assert "time it reverts at" in question
+
+    def test_the_deadline_is_a_clock_time_in_utc(self):
+        found = wgcli.Waiting(NOW + timedelta(seconds=90), 90)
+        text = wgcli.unconfirmed_text(found)
+        assert text.startswith("NOT CONFIRMED YET")
+        assert "reverts at 14:32:05 UTC (90 s from now)" in text
+        assert "\n\n    keel network confirm\n\n" in text
+        assert "NEW session" in text
+        assert wgcli.CONFIRM_NOW in text
+
+    def test_an_unknown_deadline_is_not_made_up(self):
+        text = wgcli.unconfirmed_text(wgcli.Waiting(None, None))
+        assert "reverts as its window ends" in text
+        assert "UTC" not in text
+
+    def test_the_first_screen_says_a_change_waits(self):
+        found = wgcli.Waiting(NOW + timedelta(seconds=90), 90)
+        lines = wgcli.overlay_text(THIS_KEY, OVERLAY, found).splitlines()
+        assert lines[0] == wgcli.waiting_line(found)
+        assert "14:32:05 UTC" in lines[0]
+        assert wgcli.THIS_NODE not in lines
+        unknown = wgcli.waiting_line(wgcli.Waiting(None, None))
+        assert "UTC" not in unknown
+
+    def test_the_waiting_texts_fit_an_80x24_console(self):
+        import keelbanner
+
+        many = {**OVERLAY, "peers": [
+            {"public_key": key, "allowed_ips": [f"fd00:6b65:1::{n}/128"]}
+            for n, key in enumerate([PEER_KEY, OTHER_KEY, THIS_KEY,
+                                     PEER_KEY[::-1]], 2)]}
+        for found in (wgcli.Waiting(NOW, 0), wgcli.Waiting(None, None)):
+            assert len(wgcli.waiting_line(found)) <= 72
+            lines = wgcli.overlay_text(THIS_KEY, many, found).splitlines()
+            assert max(len(line) for line in lines) <= 72
+            # four choices under it, Confirm now among them
+            assert len(lines) <= 20 - 5 - 6
+            rows = keelbanner.text_rows(wgcli.unconfirmed_text(found), 72)
+            assert rows + keelbanner.BOX_CHROME <= 20
+        rows = keelbanner.text_rows(wgcli.CONFIRM_QUESTION, 72)
+        assert rows + keelbanner.BOX_CHROME <= 20
 
     def test_nothing_pending_says_nothing_of_confirming(self):
         failed = APPLIED.replace(": done\n", ": failed: wg-quick exited 1;"
@@ -691,6 +790,154 @@ class TestScreen:
         peers = read(path)["network"]["overlay"]["wireguard"]["peers"]
         assert peers[-1] == {"public_key": OTHER_KEY,
                              "allowed_ips": ["fd11:a58a:88ef::2/128"]}
+
+
+class TestWaiting:
+    """What the screen knows of a change that waits: keel's marker"""
+
+    def test_nothing_waits(self, marker):
+        assert wgscreen.waiting() is None
+        assert marker["roots"] == ["/"]
+
+    def test_without_keel_nothing_is_known(self, marker, monkeypatch):
+        monkeypatch.setitem(sys.modules, "keel.network", None)
+        marker["waits"]()
+
+        assert wgscreen.waiting() is None
+
+    def test_the_deadline_from_the_window_and_keel_s_clock(self, marker):
+        # up at 1000 s on keel's clock, 1030 now: 90 s of 120 are left
+        marker["waits"]()
+
+        assert wgscreen.waiting() == wgcli.Waiting(
+            NOW + timedelta(seconds=90), 90)
+
+    def test_a_window_already_over_is_now(self, marker):
+        marker["waits"](clock=1500.0)
+
+        assert wgscreen.waiting() == wgcli.Waiting(NOW, 0)
+
+    @pytest.mark.parametrize("unknown", ["marker", "changed_at", "clock"])
+    def test_a_change_that_cannot_be_dated_still_waits(self, marker,
+                                                       unknown):
+        marker["waits"](changed_at=None if unknown == "changed_at"
+                        else 1000.0,
+                        clock=None if unknown == "clock" else 1030.0)
+        if unknown == "marker":
+            marker["pending"] = None
+
+        assert wgscreen.waiting() == wgcli.Waiting(None, None)
+
+    def test_the_clock_is_utc(self, marker):
+        assert marker["utc_now"]().tzinfo == UTC
+
+
+class TestConfirmWindow:
+    """keel-web-1 and keel-web-2, 2026-10-03: both changes reverted two
+    minutes after apply (journal: removed /etc/wireguard/wg0.conf, which
+    the change had created), as nobody confirmed them"""
+
+    def add(self, keel, spec, answer, confirm=None):
+        spec(wgcli.with_overlay(BASE, OVERLAY))
+        keel["answers"]["spec apply"] = [(0, APPLIED)]
+        if confirm is not None:
+            keel["answers"]["network confirm"] = [confirm]
+        console = FakeConsole(
+            menus=[("ok", wgscreen.ADD), ("cancel", "")],
+            forms=[("ok", [OTHER_KEY, "fd00:6b65:1::3", "", ""])],
+            yesno=[answer],
+        )
+        wgscreen.run(console)
+        return [call[2] for call in console.calls if call[0] == "msgbox"]
+
+    def test_no_says_the_deadline_and_the_command(self, keel, spec, marker):
+        marker["waits"]()
+
+        texts = self.add(keel, spec, "cancel")
+
+        assert "network confirm" not in commands(keel)
+        assert "NOT CONFIRMED YET" in texts[-1]
+        assert "reverts at 14:32:05 UTC" in texts[-1]
+        assert "keel network confirm" in texts[-1]
+
+    def test_a_refused_confirmation_says_it_too(self, keel, spec, marker):
+        marker["waits"]()
+
+        texts = self.add(keel, spec, "ok", (21, "", REFUSED))
+
+        assert "was open before the change" in texts[-2]
+        assert "reverts at 14:32:05 UTC" in texts[-1]
+
+    def test_a_confirmed_change_says_nothing_more(self, keel, spec, marker):
+        marker["waits"]()
+
+        texts = self.add(keel, spec, "ok", (0, "confirmed from the console"
+                                            " /dev/tty1\n"))
+
+        assert "confirmed: the network change stays" in texts[-1]
+        assert not any("NOT CONFIRMED" in text for text in texts)
+
+    def test_a_change_no_longer_waiting_is_not_said_to(self, keel, spec):
+        # confirmed from another session meanwhile: the marker is gone
+        texts = self.add(keel, spec, "cancel")
+
+        assert not any("NOT CONFIRMED" in text for text in texts)
+
+    def test_back_on_the_screen_a_waiting_change_comes_first(
+        self, keel, spec, marker
+    ):
+        spec(wgcli.with_overlay(BASE, OVERLAY))
+        marker["waits"]()
+        console = FakeConsole(menus=[("cancel", "")])
+
+        wgscreen.run(console)
+
+        _, _, text, choices = console.calls[0]
+        assert text.splitlines()[0] == wgcli.waiting_line(
+            wgcli.Waiting(NOW + timedelta(seconds=90), 90))
+        assert [tag for tag, _ in choices] == [
+            wgscreen.CONFIRM_NOW, wgscreen.ADDRESS, wgscreen.ADD,
+            wgscreen.REMOVE]
+
+    def test_confirm_now_runs_keel_and_says_its_verdict(self, keel, spec,
+                                                        marker):
+        spec(wgcli.with_overlay(BASE, OVERLAY))
+        marker["waits"]()
+        keel["answers"]["network confirm"] = [(21, "", REFUSED)]
+        console = FakeConsole(menus=[("ok", wgscreen.CONFIRM_NOW),
+                                     ("cancel", "")])
+
+        wgscreen.run(console)
+
+        assert commands(keel)[-1] == "network confirm"
+        texts = [call[2] for call in console.calls if call[0] == "msgbox"]
+        assert "was open before the change" in texts[0]
+        assert "not confirmed" in texts[0]
+        assert "reverts at 14:32:05 UTC" in texts[1]
+
+    def test_confirm_now_without_keel(self, keel, spec, marker):
+        spec(wgcli.with_overlay(BASE, OVERLAY))
+        marker["waits"]()
+        keel["answers"]["network confirm"] = [
+            keelcli.KeelNotInstalled(keelcli.NOT_INSTALLED)]
+        console = FakeConsole(menus=[("ok", wgscreen.CONFIRM_NOW),
+                                     ("cancel", "")])
+
+        wgscreen.run(console)
+
+        texts = [call[2] for call in console.calls if call[0] == "msgbox"]
+        assert texts[0] == keelcli.NOT_INSTALLED
+        assert "NOT CONFIRMED YET" in texts[1]
+
+    def test_nothing_waiting_offers_no_confirm_now(self, keel, spec):
+        spec(wgcli.with_overlay(BASE, OVERLAY))
+        console = FakeConsole(menus=[("cancel", "")])
+
+        wgscreen.run(console)
+
+        assert wgscreen.CONFIRM_NOW not in [
+            tag for tag, _ in console.calls[0][3]]
+        assert wgcli.THIS_NODE in console.calls[0][2]
 
 
 FIRST_WITH_OVERLAY = (0, 11)

@@ -13,6 +13,8 @@ field means, and every refusal, is keel's (``docs/spec.md`` and
 """
 
 import ipaddress
+from dataclasses import dataclass
+from datetime import datetime
 
 import keelcli
 
@@ -55,12 +57,56 @@ CONFIRM_HOW = (
     " usual address, then run: keel network confirm. A session that was"
     " open before the change cannot confirm it."
 )
+# dialog's yesno defaults to Yes, and Yes is what to answer: it told an
+# SSH operator to answer No, and nothing said by when to confirm after
+# that, so both nodes reverted (keel-web-1 and -2, 2026-10-03)
 CONFIRM_QUESTION = (
-    "Confirm the change from here?\n\nkeel accepts it from the machine's"
-    " own console. From an SSH session opened before the change it refuses,"
-    " and the change reverts unless a new session confirms it.\n\n"
-    "Answer No to confirm from a new session instead."
+    "Confirm the change from here?\n\nYes is safe to try: keel accepts"
+    " it from the machine's own console or from an SSH session opened"
+    " after the change, and refuses it, changing nothing, from a session"
+    " opened before.\n\nWhile it still waits, the next screen gives the"
+    " time it reverts at and how to confirm it."
 )
+CONFIRM_NOW = "Confirm now"
+CONFIRM_NOW_ITEM = "keel network confirm (console, or a NEW session)"
+CLOCK = "%H:%M:%S UTC"
+UNCONFIRMED = (
+    "NOT CONFIRMED YET: the change reverts {when} unless it is confirmed."
+    "\n\nFrom a NEW session (ssh to this node: over the overlay from the"
+    " other node, or over its usual address), run:\n\n"
+    "    keel network confirm\n\n"
+    "Or open this screen again before then and choose " + CONFIRM_NOW +
+    ": keel takes it from the console, or from an SSH session opened"
+    " after the change."
+)
+WAITING_LINE = "A NETWORK CHANGE WAITS FOR CONFIRMATION: it reverts {when}."
+
+
+@dataclass(frozen=True)
+class Waiting:
+    """A network change waiting for its confirmation: when it reverts,
+    and the seconds left; both None when keel's marker cannot date it"""
+
+    at: datetime | None
+    left: int | None
+
+
+def reverts(found: Waiting, seconds: bool = False) -> str:
+    """When the change reverts, as a clock time when it is known"""
+    if found.at is None:
+        return "as its window ends"
+    when = f"at {found.at.strftime(CLOCK)}"
+    return f"{when} ({found.left} s from now)" if seconds else when
+
+
+def unconfirmed_text(found: Waiting) -> str:
+    """After apply, or a confirmation keel refused: by when, and how"""
+    return UNCONFIRMED.format(when=reverts(found, seconds=True))
+
+
+def waiting_line(found: Waiting) -> str:
+    """The first line of the first screen while a change waits"""
+    return WAITING_LINE.format(when=reverts(found))
 
 
 def overlay_of(document: dict) -> dict:
@@ -248,15 +294,19 @@ def peer_choices(wireguard: dict) -> list[tuple[str, str]]:
             for peer in peers(wireguard)]
 
 
-def overlay_text(public_key: str, wireguard: dict) -> str:
+def overlay_text(public_key: str, wireguard: dict,
+                 waiting: Waiting | None = None) -> str:
     """The first screen: this node, then its peers, then what it is for
 
     One line a peer, and no more than LISTED of them when there are
     more, so that the menu under the text keeps its rows on an 80x24
-    console; Remove peer lists every one.
+    console; Remove peer lists every one. While a network change waits,
+    its line comes first, in place of what the screen is for, which
+    keeps the rows for the fourth choice, Confirm now.
     """
     port = wireguard.get("listen_port") or DEFAULT_PORT
-    lines = [
+    first = [waiting_line(waiting), ""] if waiting else []
+    lines = first + [
         f"This node's public key: {public_key}",
         "Mesh address (not your LAN):"
         f" {wireguard.get('address') or NO_ADDRESS}  UDP port: {port}",
@@ -273,7 +323,7 @@ def overlay_text(public_key: str, wireguard: dict) -> str:
     if len(shown) < len(found):
         lines.append(f"  and {len(found) - len(shown)} more: Remove peer"
                      " lists every one")
-    return "\n".join(lines + ["", THIS_NODE])
+    return "\n".join(lines if waiting else lines + ["", THIS_NODE])
 
 
 def is_pending(result: keelcli.Result) -> bool:

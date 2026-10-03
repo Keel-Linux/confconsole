@@ -461,6 +461,7 @@ class TestNothingIsCutAt80Columns:
             "endpoint": "[2001:db8::20]:51820"}]}
         menus = [
             wgscreen.choices(wireguard),
+            wgscreen.choices(wireguard, waiting=True),
             keelfirstboot.overlay_choices("primary", wireguard),
             keelfirstboot.overlay_choices("replica", {}),
             keelfirstboot.ROLE_CHOICES,
