@@ -450,7 +450,7 @@ def overlay(console, path: str, role: str) -> str | None:
             return None
         if choice == CONTINUE:
             return key
-        wgscreen.ACTIONS[choice](console, path, document, wireguard)
+        wgscreen.ACTIONS[choice](console, path, document, wireguard, key)
 
 
 def overlay_choices(role: str, wireguard: dict) -> list[tuple[str, str]]:
@@ -488,7 +488,8 @@ def finish(console, path: str, role: str) -> None:
 def later(console, role: str, overlay_done: bool) -> None:
     lines = [LATER_TEXT]
     if not overlay_done:
-        # behind Advanced in a simple installation, until it is in use
+        # behind Advanced in a simple installation, in the cloud modes
+        # in the Instance menu itself
         lines.append(f"  {keelmenu.overlay_where()}: this node's address"
                      " and peers")
     lines.append(f"  {MODE_WHERE[role]}")

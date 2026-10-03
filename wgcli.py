@@ -13,6 +13,8 @@ field means, and every refusal, is keel's (``docs/spec.md`` and
 """
 
 import ipaddress
+from dataclasses import dataclass
+from datetime import datetime
 
 import keelcli
 
@@ -55,12 +57,56 @@ CONFIRM_HOW = (
     " usual address, then run: keel network confirm. A session that was"
     " open before the change cannot confirm it."
 )
+# dialog's yesno defaults to Yes, and Yes is what to answer: it told an
+# SSH operator to answer No, and nothing said by when to confirm after
+# that, so both nodes reverted (keel-web-1 and -2, 2026-10-03)
 CONFIRM_QUESTION = (
-    "Confirm the change from here?\n\nkeel accepts it from the machine's"
-    " own console. From an SSH session opened before the change it refuses,"
-    " and the change reverts unless a new session confirms it.\n\n"
-    "Answer No to confirm from a new session instead."
+    "Confirm the change from here?\n\nYes is safe to try: keel accepts"
+    " it from the machine's own console or from an SSH session opened"
+    " after the change, and refuses it, changing nothing, from a session"
+    " opened before.\n\nWhile it still waits, the next screen gives the"
+    " time it reverts at and how to confirm it."
 )
+CONFIRM_NOW = "Confirm now"
+CONFIRM_NOW_ITEM = "keel network confirm (console, or a NEW session)"
+CLOCK = "%H:%M:%S UTC"
+UNCONFIRMED = (
+    "NOT CONFIRMED YET: the change reverts {when} unless it is confirmed."
+    "\n\nFrom a NEW session (ssh to this node: over the overlay from the"
+    " other node, or over its usual address), run:\n\n"
+    "    keel network confirm\n\n"
+    "Or open this screen again before then and choose " + CONFIRM_NOW +
+    ": keel takes it from the console, or from an SSH session opened"
+    " after the change."
+)
+WAITING_LINE = "A NETWORK CHANGE WAITS FOR CONFIRMATION: it reverts {when}."
+
+
+@dataclass(frozen=True)
+class Waiting:
+    """A network change waiting for its confirmation: when it reverts,
+    and the seconds left; both None when keel's marker cannot date it"""
+
+    at: datetime | None
+    left: int | None
+
+
+def reverts(found: Waiting, seconds: bool = False) -> str:
+    """When the change reverts, as a clock time when it is known"""
+    if found.at is None:
+        return "as its window ends"
+    when = f"at {found.at.strftime(CLOCK)}"
+    return f"{when} ({found.left} s from now)" if seconds else when
+
+
+def unconfirmed_text(found: Waiting) -> str:
+    """After apply, or a confirmation keel refused: by when, and how"""
+    return UNCONFIRMED.format(when=reverts(found, seconds=True))
+
+
+def waiting_line(found: Waiting) -> str:
+    """The first line of the first screen while a change waits"""
+    return WAITING_LINE.format(when=reverts(found))
 
 
 def overlay_of(document: dict) -> dict:
@@ -110,6 +156,75 @@ def host_prefix(address: str) -> str:
     except ValueError:
         return text
     return f"{value}/{value.max_prefixlen}"
+
+
+OWN_KEY = (
+    "That is this node's own public key, the one at the top of the"
+    " overlay screen. A node is never its own peer: enter the OTHER"
+    " node's key, as that node's own Overlay network screen shows it."
+)
+OWN_ADDRESS = (
+    "{address} is this node's own mesh address. Enter the OTHER node's"
+    " mesh address, as that node's own screen shows it (::2, ::3 on"
+    " this node's /64)."
+)
+OUTSIDE = (
+    "{peer} is outside this node's mesh prefix, {network} (this node is"
+    " {address}).\n\nThe nodes of a set normally share one /64: the"
+    " first node's, the others taking ::2, ::3 on it. A peer is routed"
+    " as one host (/128), so this still works.\n\nAdd it anyway?"
+)
+# the fields of the overlay that hold this node's own addresses
+OWN_FIELDS = ("address", "ipv4_address")
+
+
+def interface_of(text: str):
+    """An address with or without its prefix, or None when it is not one"""
+    try:
+        return ipaddress.ip_interface(str(text).strip())
+    except ValueError:
+        return None
+
+
+def own_interfaces(wireguard: dict) -> list:
+    """This node's overlay addresses, each with its prefix"""
+    found = (interface_of(wireguard.get(name) or "") for name in OWN_FIELDS)
+    return [one for one in found if one is not None]
+
+
+def peer_problem(own_key: str, wireguard: dict, key: str,
+                 address: str) -> str:
+    """Why a peer is this node itself, or "" when it is not
+
+    Only what is this node's own is refused here; anything else that is
+    wrong (a key that is not one, an address that does not parse) is
+    keel's to refuse, in its own words, when the description is staged.
+    """
+    if key.strip() and key.strip() == own_key.strip():
+        return OWN_KEY
+    peer = interface_of(address)
+    for own in own_interfaces(wireguard):
+        if peer is not None and peer.ip == own.ip:
+            return OWN_ADDRESS.format(address=own.ip)
+    return ""
+
+
+def outside_prefix(wireguard: dict, address: str) -> str:
+    """The question to ask when a peer is outside this node's prefix
+
+    "" when it is inside one of them, or when either side is not an
+    address yet. keel routes a peer by /128 (host_prefix), so a peer on
+    another prefix still works; it is asked about because it is most
+    often a node of another set, or a typo.
+    """
+    peer = interface_of(address)
+    own = own_interfaces(wireguard)
+    if peer is None or not own:
+        return ""
+    if any(peer.ip in one.network for one in own):
+        return ""
+    return OUTSIDE.format(peer=peer.ip, network=own[0].network,
+                          address=own[0])
 
 
 def peer_entry(public_key: str, endpoint: str, address: str,
@@ -179,15 +294,19 @@ def peer_choices(wireguard: dict) -> list[tuple[str, str]]:
             for peer in peers(wireguard)]
 
 
-def overlay_text(public_key: str, wireguard: dict) -> str:
+def overlay_text(public_key: str, wireguard: dict,
+                 waiting: Waiting | None = None) -> str:
     """The first screen: this node, then its peers, then what it is for
 
     One line a peer, and no more than LISTED of them when there are
     more, so that the menu under the text keeps its rows on an 80x24
-    console; Remove peer lists every one.
+    console; Remove peer lists every one. While a network change waits,
+    its line comes first, in place of what the screen is for, which
+    keeps the rows for the fourth choice, Confirm now.
     """
     port = wireguard.get("listen_port") or DEFAULT_PORT
-    lines = [
+    first = [waiting_line(waiting), ""] if waiting else []
+    lines = first + [
         f"This node's public key: {public_key}",
         "Mesh address (not your LAN):"
         f" {wireguard.get('address') or NO_ADDRESS}  UDP port: {port}",
@@ -204,7 +323,7 @@ def overlay_text(public_key: str, wireguard: dict) -> str:
     if len(shown) < len(found):
         lines.append(f"  and {len(found) - len(shown)} more: Remove peer"
                      " lists every one")
-    return "\n".join(lines + ["", THIS_NODE])
+    return "\n".join(lines if waiting else lines + ["", THIS_NODE])
 
 
 def is_pending(result: keelcli.Result) -> bool:

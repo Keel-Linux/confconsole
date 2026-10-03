@@ -1,3 +1,27 @@
+confconsole (2.2.3+keel15) trixie; urgency=low
+
+  * The Overlay network screen keeps one place in the Instance menu. It
+    moved from Instance > Advanced to the Instance menu itself once the
+    spec had an overlay, and Advanced went with it, so the maintainer
+    took it for gone (keel-web-2, 2026-10-03). Its place now follows the
+    installation mode alone: behind Advanced in a simple installation,
+    configured or not; in the Instance menu in the cloud modes, with no
+    empty Advanced.
+  * Add peer refuses this node's own public key, shown at the top of the
+    same screen, and this node's own mesh address, and asks before adding
+    a peer outside this node's overlay prefix (it still works, routed as
+    one host). The form comes back with what was typed.
+  * A network change waiting for its confirmation is no longer left to
+    revert unnoticed (both nodes, 2026-10-03). After apply, when the
+    operator does not confirm from here or keel refuses it, the screen
+    gives the time the change reverts at, in UTC, and the command, keel
+    network confirm. Opening the screen while a change waits says so on
+    its first line and offers Confirm now first, which runs keel network
+    confirm; keel decides whether this session may. The question before
+    it says Yes is safe to try instead of steering an SSH session to No.
+
+ -- Marcos Méndez <mendez.foto@gmail.com>  Sat, 03 Oct 2026 15:00:00 +0000
+
 confconsole (2.2.3+keel14) trixie; urgency=low
 
   * The Let's Encrypt screen is driven by the instance description. Its
