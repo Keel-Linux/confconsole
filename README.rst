@@ -138,6 +138,13 @@ releases.
 
 Developers may be interested in reading further about the `Plugin`_ system.
 
+Tests
+-----
+
+The test suite runs with pytest, without root, network or a real console.
+What it needs, the commands CI runs and the coverage threshold are in
+`tests/README.md`_.
+
 .. _GPLv3: https://www.gnu.org/licenses/gpl-3.0.txt
 .. _Confconsole documentation source: https://github.com/turnkeylinux/confconsole/blob/master/docs/Readme.rst
 .. _Plugin: ./docs/Plugins.rst
@@ -148,5 +155,6 @@ Developers may be interested in reading further about the `Plugin`_ system.
 .. _Region config: ./docs/Region_config.rst
 .. _System settings: ./docs/System_settings.rst
 .. _Instance: ./docs/Instance.rst
+.. _tests/README.md: ./tests/README.md
 .. _TurnKey Linux Appliances: https://www.turnkeylinux.org/all
 .. _support forums: https://www.turnkeylinux.org/forum/support
