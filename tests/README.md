@@ -2,7 +2,7 @@
 
 ## What is needed
 
-Python 3.13 (the version CI runs; the suite also passes on 3.11) with
+Python 3.13 (the version CI runs) with
 `pytest`, `coverage` and `pyyaml`:
 
     python3 -m pip install pytest coverage pyyaml
@@ -19,16 +19,19 @@ The tests target Linux, as CI does (`ubuntu-latest`): some use
 `os.getuid()` and Unix file modes, so on Windows run them under WSL.
 
 Where `/tmp` carries an ACL that makes new files writable by others
-(GitHub Codespaces does: `ls -ld /tmp` ends in `+`), 25 tests fail with
-"writable by group or others". Give pytest a directory without one by
-adding `--basetemp=$HOME/pytmp/run` to the commands below.
+(GitHub Codespaces does: `ls -ld /tmp` ends in `+`), the tests that
+write the Keel Cloud flag fail with "writable by group or others". Give
+pytest a directory without one by adding `--basetemp=$HOME/pytmp/run` to
+the commands below.
 
 ## Running them as CI does
 
-From the repository root, with the module list copied from `package:` in
-`.github/workflows/tests.yml`:
+From the repository root. The modules to measure are read from `package:`
+in `.github/workflows/tests.yml`, the list CI uses, so the command stays
+right when a module is added:
 
-    PYTHONPATH=. python -m coverage run --branch --source=conf,ifutil,keelbanner,keelcli,dbscreen,wgcli,wgscreen,keelfirstboot,keelfit,keelmenu,plugins.d/Instance -m pytest -q tests
+    MODULES=$(python -c "import yaml; print(yaml.safe_load(open('.github/workflows/tests.yml'))['jobs']['tests']['with']['package'])")
+    PYTHONPATH=. python -m coverage run --branch --source="$MODULES" -m pytest -q tests
     python -m coverage report --show-missing
 
 CI fails when the report is under its threshold; to check that locally:
@@ -48,7 +51,7 @@ To run the tests without coverage, or one file or test:
 
 ## Skipped tests
 
-Seven tests skip unless a real keel is present: the
+A few tests skip unless a real keel is present: the
 `TestWithTheRealKeel` classes in `test_keelmenu.py` (needs the `keel`
 Python package) and in `test_first_boot.py` and `test_overlay_screen.py`
 (needs a `keel` command of version 0.11 or later, found on `PATH` or named
