@@ -19,7 +19,7 @@ jobs:
     uses: keel-linux/.github/.github/workflows/test-python.yml@main
     with:
       threshold: 100
-      package: conf,ifutil,keelbanner,keelcli,dbscreen,wgcli,wgscreen,keelfirstboot,keelfit,keelmenu,plugins.d/Instance
+      package: conf,ipaddr,ifutil,keelbanner,keelcli,dbscreen,wgcli,wgscreen,keelfirstboot,keelfit,keelmenu,plugins.d/Instance
   # A change that ships must come with a changelog entry, or it cannot be
   # installed and never reaches an appliance. The rule and its tests are
   # bin/require-changelog of the .github repository. The check is
