@@ -48,6 +48,9 @@ class IP(int):
             return int.__new__(cls, int(arg))
 
         elif isinstance(arg, int):
+            if not 0 <= arg <= 0xFFFFFFFF:
+                raise Error(f"ip out of range ({arg})")
+
             return int.__new__(cls, arg)
 
         else:
@@ -89,7 +92,7 @@ class IPRange:
         self.ip = IP(ip)
         self.netmask = IP(netmask)
         self.network = self.ip & self.netmask
-        self.broadcast = self.network + 2**32 - self.netmask - 1
+        self.broadcast = IP(int(self.network) + 2**32 - int(self.netmask) - 1)
         self.cidr = int(32 - math.log(2**32 - self.netmask, 2))
 
     def __contains__(self, ip: AnyIP) -> bool:
