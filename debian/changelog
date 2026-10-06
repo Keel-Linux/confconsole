@@ -1,3 +1,12 @@
+confconsole (2.2.3+keel16) trixie; urgency=low
+
+  * ipaddr.IP() refuses an integer outside 0 to 2**32-1 with
+    Error("ip out of range"). Before, IP(2**32) or IP(-1) was created and
+    only failed later in str() with a struct.error. IPRange computes its
+    broadcast address the same as before.
+
+ -- Nandika Gupta <nandika.g2@gmail.com>  Tue, 06 Oct 2026 19:00:00 +0000
+
 confconsole (2.2.3+keel15) trixie; urgency=low
 
   * The Overlay network screen keeps one place in the Instance menu. It

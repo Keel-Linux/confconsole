@@ -63,6 +63,19 @@ class TestIP:
         with pytest.raises(ipaddr.Error, match="illegal ip"):
             IP("300.0.2.1")
 
+    @pytest.mark.parametrize("value", [0, 0xFFFFFFFF])
+    def test_int_at_the_ends_of_the_range(self, value):
+        assert int(IP(value)) == value
+
+    @pytest.mark.parametrize("value", [-1, 2**32])
+    def test_int_out_of_range_raises_error(self, value):
+        with pytest.raises(ipaddr.Error, match="ip out of range"):
+            IP(value)
+
+    def test_operator_past_the_last_address_raises_error(self):
+        with pytest.raises(ipaddr.Error, match="ip out of range"):
+            IP("255.255.255.255") + 1
+
     @pytest.mark.parametrize(
         "op, operand, expected",
         [
