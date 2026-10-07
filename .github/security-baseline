@@ -1,0 +1,21 @@
+# Security scan baseline (keel-linux/.github, security-scan.yml): findings
+# that were read and are not a risk, one per line, the fingerprint and why.
+bandit:B104:keelcli.py:91ee8f1ed51f WILDCARDS recognises a wildcard listen address so the screen lists the machine's own addresses instead; nothing binds to it
+bandit:B113:plugins.d/Lets_Encrypt/get_certificate.py:00ba232f083a a missing timeout can only hang the interactive dialog on a stalled Let's Encrypt endpoint; no exposure
+bandit:B605:confconsole.py:3983deb711f5 os.system of a constant shutdown command; FGVT comes from the environment of confconsole itself, a root process, so whoever sets it is already root
+semgrep:python.lang.security.audit.dangerous-system-call-tainted-env-args.dangerous-system-call-tainted-env-args:confconsole.py:3983deb711f5 same line as bandit B605: FGVT is read from the root process's own environment
+semgrep:python.lang.security.audit.insecure-file-permissions.insecure-file-permissions:plugins.d/Lets_Encrypt/cert_auto_renew.py:8ef5db16ec39 toggles only the execute bits of the root-owned cron script; read and write bits are untouched
+semgrep:python.lang.security.audit.insecure-file-permissions.insecure-file-permissions:plugins.d/System_Settings/Confconsole_auto_start.py:f6d824479c1e toggles only the execute bits of the root-owned auto-start script; read and write bits are untouched
+shellcheck:SC2034:share/letsencrypt/dehydrated-confconsole.hook-dns-01.sh:6af81d037e96 shell lint, not a security risk: a variable read by a sourcing script or left unused
+shellcheck:SC2034:share/letsencrypt/dehydrated-confconsole.hook-dns-01.sh:6ddfa757829c shell lint, not a security risk: a variable read by a sourcing script or left unused
+shellcheck:SC2034:share/letsencrypt/dehydrated-confconsole.hook-dns-01.sh:88ceecb61dc0 shell lint, not a security risk: a variable read by a sourcing script or left unused
+shellcheck:SC2034:share/letsencrypt/dehydrated-confconsole.hook-http-01.sh:6af81d037e96 shell lint, not a security risk: a variable read by a sourcing script or left unused
+shellcheck:SC2034:share/letsencrypt/dehydrated-confconsole.hook-http-01.sh:6ddfa757829c shell lint, not a security risk: a variable read by a sourcing script or left unused
+shellcheck:SC2034:share/letsencrypt/dehydrated-confconsole.hook-http-01.sh:88ceecb61dc0 shell lint, not a security risk: a variable read by a sourcing script or left unused
+shellcheck:SC2046:turnkey-lexicon:f4064ffb96bc shell lint, not a security risk: unquoted command substitution over values the script itself produces
+shellcheck:SC2128:plugins.d/Mail_Relaying/mail_relay.sh:640fcd75dfb6 shell lint, not a security risk: array expanded without index, a correctness defect
+shellcheck:SC2128:plugins.d/Mail_Relaying/mail_relay.sh:f017058fed92 shell lint, not a security risk: array expanded without index, a correctness defect
+shellcheck:SC2128:plugins.d/Mail_Relaying/mail_relay.sh:fc8089bb6056 shell lint, not a security risk: array expanded without index, a correctness defect
+shellcheck:SC2145:plugins.d/Mail_Relaying/mail_relay.sh:1d07bfd47757 shell lint, not a security risk: "$@" mixed into a message string, affects only log text
+shellcheck:SC2145:plugins.d/Mail_Relaying/mail_relay.sh:9b128dae6d11 shell lint, not a security risk: "$@" mixed into a message string, affects only log text
+shellcheck:SC2145:plugins.d/Mail_Relaying/mail_relay.sh:bf7df2f4aff3 shell lint, not a security risk: "$@" mixed into a message string, affects only log text

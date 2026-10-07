@@ -1,0 +1,12 @@
+# gitleaks (keel-linux/.github, security-scan.yml): the default rules, less
+# the test files below, whose WireGuard keys are fixtures generated for the
+# tests. A new fixture is added here by path once it has been read.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "test fixtures, fake keys on purpose"
+paths = [
+  '''^tests/test_first_boot\.py$''',
+  '''^tests/test_overlay_screen\.py$''',
+]
