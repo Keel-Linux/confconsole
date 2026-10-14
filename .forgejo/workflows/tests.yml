@@ -1,0 +1,34 @@
+# Forgejo copy of .github/workflows/tests.yml (decision 0056): the same
+# jobs, with a runs-on line on each call of a reusable workflow,
+# because Forgejo runs a called workflow on the runner of the caller.
+name: tests
+on:
+  pull_request:
+  push:
+    branches: [master]
+jobs:
+  tests:
+    # Threshold 100: ifutil.py, keelcli.py, keelbanner.py, dbscreen.py,
+    # wgcli.py, wgscreen.py, keelfirstboot.py, keelfit.py, keelmenu.py
+    # and the Instance menu entries, the database mode, overlay and Keel
+    # Cloud screens included, measure 100 percent (796 tests, lines and
+    # branches). The
+    # package list names the modules with tests; a module is appended as
+    # its tests land (COVERAGE.md plan) and the threshold is only ever
+    # raised (decision 0006). Baseline before the first test: 0 percent.
+    # confconsole.py has tests (the static IPv6 dialog, the usage screen,
+    # the mark above it) but is not measured: as a whole it would not reach
+    # the threshold, see COVERAGE.md.
+    runs-on: keel-host
+    uses: keel-linux/.github/.github/workflows/test-python.yml@main
+    with:
+      threshold: 100
+      package: conf,ipaddr,ifutil,keelbanner,keelcli,dbscreen,wgcli,wgscreen,keelfirstboot,keelfit,keelmenu,plugins.d/Instance
+  # A change that ships must come with a changelog entry, or it cannot be
+  # installed and never reaches an appliance. The rule and its tests are
+  # bin/require-changelog of the .github repository. The check is
+  # "package / changelog"; it runs on pull requests only.
+  package:
+    if: github.event_name == 'pull_request'
+    runs-on: keel-host
+    uses: keel-linux/.github/.github/workflows/require-changelog.yml@main
