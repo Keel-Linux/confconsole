@@ -65,15 +65,16 @@ def fatal(msg: str) -> NoReturn:
     sys.exit(1)
 
 
-def usage(msg: str | getopt.GetoptError = "") -> NoReturn:
+def usage(msg: str | getopt.GetoptError = "", *, code: int = 1) -> NoReturn:
     if msg:
         msg = f"Error: {msg}"
         log.error(msg)
         print(msg, file=sys.stderr)
 
-    print(f"Syntax: {sys.argv[0]}", file=sys.stderr)
-    print(USAGE.strip(), file=sys.stderr)
-    sys.exit(1)
+    out = sys.stdout if code == 0 else sys.stderr
+    print(f"Syntax: {sys.argv[0]}", file=out)
+    print(USAGE.strip(), file=out)
+    sys.exit(code)
 
 
 def format_fields(
@@ -1171,7 +1172,7 @@ def main() -> None:
 
     for opt, val in opts:
         if opt in ("-h", "--help"):
-            usage()
+            usage(code=0)
         elif opt == "--usage":
             advanced_enabled = False
         elif opt == "--nointeractive":

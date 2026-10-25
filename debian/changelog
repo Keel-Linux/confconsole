@@ -1,3 +1,9 @@
+confconsole (2.2.3+keel18) trixie; urgency=low
+
+  * --help and -h exit 0; only a usage error exits 1 (confconsole#21)
+
+ -- Marcos Mendez <mendez.foto@gmail.com>  Sat, 25 Oct 2026 06:55:00 +0000
+
 confconsole (2.2.3+keel17) trixie; urgency=low
 
   * Maintainer and Uploaders are the Keel Linux maintainers; the TurnKey
