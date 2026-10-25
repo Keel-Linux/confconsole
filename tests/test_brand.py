@@ -116,6 +116,18 @@ def test_help_text_names_keel_linux(confconsole):
     assert "turnkey" not in confconsole.USAGE.lower()
 
 
+def test_help_exits_zero(confconsole):
+    with pytest.raises(SystemExit) as exc:
+        confconsole.usage(code=0)
+    assert exc.value.code == 0
+
+
+def test_usage_error_exits_one(confconsole):
+    with pytest.raises(SystemExit) as exc:
+        confconsole.usage("bad option")
+    assert exc.value.code == 1
+
+
 def test_lexicon_wrapper_sends_problems_to_keel():
     text = (ROOT / "turnkey-lexicon").read_text()
     assert "turnkeylinux" not in text
