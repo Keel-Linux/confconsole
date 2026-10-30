@@ -1,3 +1,13 @@
+confconsole (2.2.3+keel19) trixie; urgency=low
+
+  * The help links and the problem report address in the Let's Encrypt
+    and security update screens and in turnkey-lexicon go to
+    git.pop.coop, the source of confconsole. GitHub is only a push
+    mirror. tests/test_brand.py checks that no shipped file links to
+    GitHub and that each docs link names a file in the tree.
+
+ -- Marcos Mendez <mendez.foto@gmail.com>  Fri, 30 Oct 2026 16:30:00 +0000
+
 confconsole (2.2.3+keel18) trixie; urgency=low
 
   * --help and -h exit 0; only a usage error exits 1 (confconsole#21)
