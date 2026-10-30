@@ -8,6 +8,7 @@ run, kept so that existing installs and documentation keep working.
 """
 
 import ast
+import re
 from pathlib import Path
 
 import pytest
@@ -132,4 +133,42 @@ def test_lexicon_wrapper_sends_problems_to_keel():
     text = (ROOT / "turnkey-lexicon").read_text()
     assert "turnkeylinux" not in text
     assert "TurnKey" not in text
-    assert "https://github.com/Keel-Linux/confconsole/issues" in text
+    assert "https://git.pop.coop/Keel-Linux/confconsole/issues" in text
+
+
+FORGEJO_DOCS = "https://git.pop.coop/Keel-Linux/confconsole/src/branch/master/"
+SHIPPED = ["confconsole.py", "turnkey-lexicon", "plugins.d"]
+
+
+def _shipped_texts():
+    for name in SHIPPED:
+        path = ROOT / name
+        files = sorted(path.rglob("*")) if path.is_dir() else [path]
+        for f in files:
+            if f.is_file() and f.suffix in ("", ".py", ".txt", ".conf"):
+                yield f, f.read_text(errors="replace")
+
+
+def _joined(text):
+    # Python joins adjacent string literals; the links are split over lines.
+    return re.sub(r'"\s*\n\s*f?"', "", text)
+
+
+def test_no_shipped_link_points_to_github():
+    # The source is git.pop.coop; GitHub is only a push mirror.
+    for f, text in _shipped_texts():
+        assert "github.com/Keel-Linux" not in _joined(text), f
+
+
+def test_every_forgejo_doc_link_names_a_file_in_the_tree():
+    found = 0
+    for _, text in _shipped_texts():
+        joined = _joined(text)
+        start = joined.find(FORGEJO_DOCS)
+        while start != -1:
+            rest = joined[start + len(FORGEJO_DOCS):]
+            rel = rest.split('"')[0].split()[0].rstrip(".,)")
+            assert (ROOT / rel).is_file(), rel
+            found += 1
+            start = joined.find(FORGEJO_DOCS, start + 1)
+    assert found >= 3

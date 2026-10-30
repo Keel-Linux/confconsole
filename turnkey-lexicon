@@ -20,7 +20,7 @@ Then select:
 
 If you encounter problems, please open an issue:
 
-    https://github.com/Keel-Linux/confconsole/issues
+    https://git.pop.coop/Keel-Linux/confconsole/issues
 EOF
     exit 1
 }

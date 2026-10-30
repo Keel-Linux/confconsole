@@ -9,7 +9,7 @@ CONF_DEFAULT = "/etc/cron-apt/action-available.d/5-install.default"
 CONF_ALT = "/etc/cron-apt/action-available.d/5-install.alt"
 
 doc_url = (
-    "https://github.com/Keel-Linux/confconsole/blob/master/docs/"
+    "https://git.pop.coop/Keel-Linux/confconsole/src/branch/master/docs/"
     "System_settings.rst"
 )
 

@@ -292,8 +292,8 @@ def run() -> None:
             "Error",
             f"Dehydrated not installed or {dehydrated_conf} not found,"
             " dehydrated can be installed via apt from the Debian repos.\n\n"
-            "More info: https://github.com/Keel-Linux/confconsole/blob/"
-            "master/docs/Lets_encrypt.rst",
+            "More info: https://git.pop.coop/Keel-Linux/confconsole/"
+            "src/branch/master/docs/Lets_encrypt.rst",
             autosize=True,
         )
         return
@@ -353,7 +353,7 @@ def run() -> None:
                 console.msgbox(
                     "Error",
                     "No providers found, please report it at"
-                    " https://github.com/Keel-Linux/confconsole/issues",
+                    " https://git.pop.coop/Keel-Linux/confconsole/issues",
                     autosize=True,
                 )
                 return
@@ -409,8 +409,8 @@ def run() -> None:
         ret, values = console.form(
             "Lexicon configuration",
             "Review and adjust current lexicon configuration as"
-            "necessary.\n\n Please see https://github.com/Keel-Linux/"
-            "confconsole/blob/master/docs/Lets_encrypt.rst",
+            "necessary.\n\n Please see https://git.pop.coop/Keel-Linux/"
+            "confconsole/src/branch/master/docs/Lets_encrypt.rst",
             fields,
             autosize=True,
         )
