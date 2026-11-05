@@ -36,10 +36,10 @@ spec.
 |                   | ``keelmenu.DATA_ENGINES``                              |
 +-------------------+--------------------------------------------------------+
 | Database mode >   | only for an engine whose replication keel applies,     |
-| Cloud             | MariaDB today (``keelmenu.REPLICATING_ENGINES``). keel |
-|                   | validates a Redis or PostgreSQL primary and replica    |
-|                   | but converges neither, so those offer Standalone only, |
-|                   | and the first boot asks them no role                   |
+| Cloud             | MariaDB and PostgreSQL                                 |
+|                   | (``keelmenu.REPLICATING_ENGINES``). keel validates a   |
+|                   | Redis primary and replica but converges neither, so    |
+|                   | Redis offers Standalone only                           |
 +-------------------+--------------------------------------------------------+
 | Overlay network   | the ``wireguard`` overlay is in the chain. In the menu |
 |                   | in ``cloud_simple`` and ``cloud_advanced``; otherwise  |
@@ -206,94 +206,119 @@ network confirm`` from a new session.
 Database mode
 -------------
 
-Handbook decision 0013. Replication is MariaDB's only for now: keel
-validates a Redis or PostgreSQL primary and replica but applies neither,
-so for those engines the menu offers Standalone alone. Every screen configures
-THIS node and nothing else, writes ``database.server`` of the instance
-description, checks it with ``keel spec validate`` before it replaces the
-file, and runs ``keel spec apply --system-only --non-interactive
---skip-network --defer-certificate``: saving a database mode never
-touches the network or asks for a certificate. A fresh appliance with no
-description gets one started (``version: 1`` plus the database section).
-The console sends no SQL; what a role means, and every refusal, is
-keel's. Every Cloud screen says that this replication has no automatic
-failover.
+Handbook decisions 0013 and 0076. Standalone configures THIS node and
+nothing else: it writes ``database.server`` of the instance description,
+checks it with ``keel spec validate`` before it replaces the file, and
+runs ``keel spec apply --system-only --non-interactive --skip-network
+--defer-certificate``. A fresh appliance with no description gets one
+started (``version: 1`` plus the database section). The console sends no
+SQL; what a role means, and every refusal, is keel's.
 
 ::
 
     Database mode
       Standalone              one server, what the appliance is today
       Cloud
-        Primary               other nodes replicate from this one
-        Replica               this node replicates from another
+        Primary               First node: the mesh, the invites, the VIP
+        Replica               Second node: the join, the pair, the copy
         Promote this replica  an explicit act, never automatic
 
 Standalone
   One field, the addresses the server answers on. No second screen.
 
-Primary
-  Asks for the addresses the server answers on (a loopback only answer is
-  prefilled with this node's own addresses in front, IPv6 first), the
-  origins allowed to replicate (each replica's address; an empty field is
-  prefilled with the overlay peers' addresses, ``fd3d:80b2:d0d7::2,
-  fd3d:80b2:d0d7::3``; a name is accepted and fragile) and the password
-  file (``/etc/keel/secrets/replication_password``). No prefix is
-  offered: MariaDB matches the text of a replica's address, which can
-  leave out a zero group of the prefix (``fd3d:80b2:d0d7::2`` is not
-  ``fd3d:80b2:d0d7:0:...``), so keel refuses such a prefix, the overlay
-  /64 among them (``docs/spec.md`` of keel). The peers offered are every
-  overlay peer, replica or not. An origin the description already holds
-  that keel refuses is named above the form and replaced by the peers'
-  addresses. An empty origin list
-  authorizes nobody: keel drops every replication account, and the
-  handout says so first. When the password file holds nothing the screen
-  offers to generate a password; No lets the operator type one. After the
-  apply it shows what each replica needs::
-
-      Replicate from (address), IPv6 first:
-        2001:db8:1::10
-        (with a port it is written [2001:db8:1::10]:3306; type the bare address)
-      Allowed to replicate: fd3d:80b2:d0d7::2, fd3d:80b2:d0d7::3
-      Port: 3306 (leave the field blank)
-      Replication account: repl (keel names it; both ends use it)
-      Password kept in: /etc/keel/secrets/replication_password
-
-  followed by a generated password, shown this once. If the apply failed
-  the handout starts with THIS NODE IS NOT READY and still shows the
-  password, which is already in its file. A password already in the file
-  is kept and never shown.
-
-Replica
-  Asks for the primary's literal address, a port (blank for the default)
-  and the addresses this node answers on, then for the replication
-  password, hidden (a blank keeps the one already in the file). Before
-  anything changes it warns that becoming a replica replaces the data on
-  this node with a copy of the primary; No leaves everything as it was. If
-  keel then refuses because the server holds databases of its own, its
-  refusal is shown word for word and only a second Yes adds
-  ``--destroy-local-database``. No to that question puts the description
-  and the password file back as they were and, when the old description
-  declares a database server, applies it again, because keel had already
-  rewritten the server's configuration before it refused. keel converges
-  only what a description declares, so when the old one declares no
-  server the screen says the replica configuration stays until a database
-  mode is applied. A pasted ``[address]`` is stored bare.
+Primary and Replica
+  The first boot's flows of a cloud node (decision 0076), run again: a
+  step that is done is not done again. They need a cloud mode
+  (``installation.mode``); a simple node is told so. See "The first boot"
+  below.
 
 Promote this replica
-  Asks first, saying that nothing stops the old primary, and runs
-  ``keel database promote``. The description then still says replica,
-  which ``keel diff`` reports as drift until the Primary screen is used.
+  On a node of a pair (``appliance.vip``) it asks Planned or Old primary
+  gone, and runs ``keel database promote``, with
+  ``--old-primary-gone`` for the second: keel moves the VIP first and the
+  database follows it, and the role the description declares is
+  information, not drift. On a node without a VIP it asks first, saying
+  that nothing stops the old primary, and the description then still says
+  replica, which ``keel diff`` reports as drift.
 
-The password is written to its file (root, 0600, directory 0700) all at
-once, a new file replacing the old, after the description validated and
-before it is committed, so a refused description leaves no credential
-behind. It never appears in an argument list: keel reads it from the
-file, and the handout that shows it is a dialog textbox reading a file in
-a private 0700 directory removed when the box closes, not a msgbox, whose
-text dialog would receive as an argument readable by anyone in
-``/proc/PID/cmdline``. The password box runs with that private directory
-as ``TMPDIR``, so a temporary file of pythondialog's does not outlive a
-dropped session in ``/tmp``.
+The first boot
+--------------
+
+``keelfirstboot.py mode``, then ``role``, then ``cloud``
+(inithooks ``75keel-role`` and ``80keel-cloud``). The screen titles are
+fixed strings, which the commissioning driver of decision 0075 matches.
+
+Installation mode
+  Simple, Cloud simple or Cloud advanced: only the modes the appliance's
+  manifest allows (``modes:``, ``keel.manifest.facts.gather``). It writes
+  ``appliance.name`` (the declared one, else the installed appliance no
+  other is built on), ``installation.mode`` and every overlay of the
+  chain at that mode's column, then applies. Skipped when the
+  description declares ``installation.mode``. Under keel-init a node
+  with a mode sees it, and a Cloud simple node may move to Cloud advanced
+  (decision 0057; then ``keel mesh etcd form`` on the node that made the
+  mesh). An appliance that allows one mode records it with no screen.
+
+Role of this node
+  Cloud simple: Primary or Replica. Cloud advanced: Primary, Replica,
+  and Witness where the manifest says ``witness: true`` (Keel Core). A
+  simple node has no role screen: a database appliance records
+  ``database.server.role: standalone``.
+
+Make the mesh
+  ``keel mesh create``, on the primary when it has no mesh.
+
+Invite a node
+  ``keel mesh invite --json``, once per node: the replica, and in cloud
+  advanced the witness after it. A box says what the line is for; then
+  the line itself is printed as plain text, on one line, outside any
+  dialog (a dialog wraps it, and its text is in the process list). The
+  invite carries the VIP of the pair, which the primary writes as its
+  ``appliance.vip``, with its server (role primary, its overlay address
+  added to ``listen``), and applies.
+
+Waiting for the nodes
+  ``keel mesh status --json`` every 5 s: the member at the invited
+  address, and in cloud advanced etcd with 3 healthy voters (the VIP is
+  taken only then, so that its claim gets an etcd lease). Back gives Check
+  again, Paste accept line, Show the line, Later.
+
+Paste accept line
+  ``keel mesh accept -``, with the ``keel1a:`` line the joining node
+  printed when it could not reach the inviter.
+
+Join a mesh
+  The replica and the witness paste the invite line; ``keel mesh join
+  -`` reads the token on standard input, never in the process list. Its
+  output, the ``keel1a:`` fallback line among it, goes to the terminal as
+  it comes.
+
+Primary of the pair
+  On a replica with more than one member, which member is the primary.
+
+Pair with the primary
+  The replica writes the VIP the join received, the VIP overlay on, and
+  its server (role replica, ``replication.primary.host`` the primary's
+  overlay address); in cloud advanced once etcd has 3 voters. Before
+  anything changes it warns that the data on this node is replaced. Then
+  ``keel vip pair``, a wait for the primary to take the VIP, and the
+  apply; keel's refusal to drop local databases is shown word for word
+  and only a second Yes adds ``--destroy-local-database``. No puts the
+  description back as it was. Keel Web writes no server: its pair is one
+  of files (Syncthing). Keel Core pairs nothing.
+
+Take the VIP
+  The primary, once the replica has paired (keel keeps the pair record in
+  ``/var/lib/keel/vip/<vip>.pair``; Back > Take it now does not wait for
+  it): ``keel spec apply``, then ``keel vip promote``.
+
+Status of this node
+  ``keel vip status``, ``keel mesh status`` and ``keel database status``,
+  read only.
+
+No password, key, address, port or VIP is typed on either node: only the
+invite line is copied. A step that has a question and no terminal to ask
+it on exits 75, and inithooks leaves it to keel-init.
 
 When keel is not installed
 --------------------------

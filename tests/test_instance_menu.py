@@ -454,6 +454,8 @@ class TestNothingIsCutAt80Columns:
 
     def test_the_overlay_screens_menus(self):
         import keelfirstboot
+        import keelmode
+        import meshscreen
         import wgscreen
 
         wireguard = {"address": "fd00::1/64", "peers": [{
@@ -462,9 +464,18 @@ class TestNothingIsCutAt80Columns:
         menus = [
             wgscreen.choices(wireguard),
             wgscreen.choices(wireguard, waiting=True),
-            keelfirstboot.overlay_choices("primary", wireguard),
-            keelfirstboot.overlay_choices("replica", {}),
-            keelfirstboot.ROLE_CHOICES,
+            keelfirstboot.role_choices(
+                keelmode.CLOUD_ADVANCED,
+                keelmode.Facts("core", witness=True)),
+            [(keelmode.LABEL[mode], keelmode.ITEM[mode])
+             for mode in keelmode.MODES],
+            keelmode.MOVE_CHOICES,
+            [(meshscreen.CHECK, "ask keel again now"),
+             (meshscreen.ACCEPT_TITLE, "the joining node printed"
+              " keel1a:..."),
+             (meshscreen.SHOW_AGAIN, "show the invite line again"),
+             (meshscreen.TAKE_NOW, "the replica says it paired"),
+             (meshscreen.LATER, "finish this later")],
             keelfirstboot.KEY_CHOICES,
             [keelmenu.ADVANCED_ITEM],
         ]

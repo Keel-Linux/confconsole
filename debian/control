@@ -20,11 +20,11 @@ Depends:
  libsasl2-modules,
  python3-requests,
  python3-yaml,
+ keel (>= 0.23.83),
 Recommends:
  authbind,
  dehydrated,
  kbd,
- keel (>= 0.11.2),
  python3-bottle,
  resolvconf,
 Suggests:

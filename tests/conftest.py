@@ -197,12 +197,14 @@ class FakeConsole:
     OK = "ok"
 
     def __init__(self, forms=(), yesno=(), inputs=(), passwords=(),
-                 menus=()):
+                 menus=(), pauses=()):
         self.forms = list(forms)
         self.yesnos = list(yesno)
         self.inputs = list(inputs)
         self.passwords = list(passwords)
         self.menus = list(menus)
+        # a pause box closes by itself: OK unless a test scripts a button
+        self.pauses = list(pauses)
         self.calls = []
         self.msgbox_kwargs = {}
 
@@ -224,8 +226,12 @@ class FakeConsole:
         return self.OK
 
     def _wrapper(self, dialog, text, *args, **kwargs):
-        # Only the password box is reached through the wrapper by the
-        # code under test; anything else is a test that went wrong.
+        # Only the password box and the pause box of a wait are reached
+        # through the wrapper by the code under test; anything else is a
+        # test that went wrong.
+        if dialog == "pause":
+            self.calls.append(("pause", kwargs.get("title"), text, args))
+            return self.pauses.pop(0) if self.pauses else self.OK
         assert dialog == "passwordbox", dialog
         self.calls.append(("passwordbox", kwargs.get("title"), text, kwargs))
         return self.passwords.pop(0)
@@ -448,3 +454,67 @@ def cloud(tmp_path_factory, monkeypatch):
     before = os.umask(0o022)
     yield flag
     os.umask(before)
+
+
+# --- the modes of the chain (test_keelmode, test_meshscreen, first boot)
+
+E, D = "enabled", "disabled"
+CORE_COLUMNS = {
+    "installer": {"simple": E, "cloud_simple": E, "cloud_advanced": E},
+    "wireguard": {"simple": D, "cloud_simple": E, "cloud_advanced": E},
+    "etcd": {"simple": D, "cloud_simple": D, "cloud_advanced": E},
+    "crowdsec": {"simple": D, "cloud_simple": E, "cloud_advanced": E},
+    "vip": {"simple": D, "cloud_simple": D, "cloud_advanced": D},
+}
+WEB_COLUMNS = {
+    **CORE_COLUMNS,
+    "nginx": {"simple": E, "cloud_simple": E, "cloud_advanced": E},
+    "syncthing": {"simple": D, "cloud_simple": E, "cloud_advanced": E},
+}
+DB_COLUMNS = {
+    **CORE_COLUMNS,
+    "mariadb": {"simple": E, "cloud_simple": E, "cloud_advanced": E},
+}
+ALL_MODES = ("simple", "cloud_simple", "cloud_advanced")
+
+
+@pytest.fixture
+def manifests(monkeypatch):
+    """keel.manifest.facts.gather with the modes, the witness and the
+    columns of the appliances a test adds: core, web and mariadb at
+    first, as their manifests are"""
+    table = {}
+
+    def gather(root, name):
+        found = table.get(name)
+        if isinstance(found, Exception):
+            raise found
+        if found is None:
+            return types.SimpleNamespace(
+                problems=(f"{name} is not an installed appliance",),
+                resolved=None, modes=ALL_MODES, witness=False, defaults={})
+        return found
+
+    package = types.ModuleType("keel")
+    manifest = types.ModuleType("keel.manifest")
+    facts = types.ModuleType("keel.manifest.facts")
+    facts.gather = gather
+    package.manifest = manifest
+    manifest.facts = facts
+    monkeypatch.setitem(sys.modules, "keel", package)
+    monkeypatch.setitem(sys.modules, "keel.manifest", manifest)
+    monkeypatch.setitem(sys.modules, "keel.manifest.facts", facts)
+
+    def add(name, columns, modes=ALL_MODES, witness=False, engines=None):
+        engines = engines or {}
+        table[name] = types.SimpleNamespace(
+            problems=(), modes=tuple(modes), witness=witness,
+            defaults={one: dict(states) for one, states in columns.items()},
+            resolved=resolved(overlay(one, engines.get(one))
+                              for one in columns))
+
+    add("core", CORE_COLUMNS, witness=True)
+    add("web", WEB_COLUMNS)
+    add("mariadb", DB_COLUMNS, engines={"mariadb": "mariadb"})
+    add.table = table
+    return add

@@ -9,7 +9,8 @@ on:
 jobs:
   tests:
     # Threshold 100: ifutil.py, keelcli.py, keelbanner.py, dbscreen.py,
-    # wgcli.py, wgscreen.py, keelfirstboot.py, keelfit.py, keelmenu.py
+    # wgcli.py, wgscreen.py, keelfirstboot.py, keelfit.py, keelmenu.py,
+    # keelmode.py, meshscreen.py
     # and the Instance menu entries, the database mode, overlay and Keel
     # Cloud screens included, measure 100 percent (796 tests, lines and
     # branches). The
@@ -23,7 +24,7 @@ jobs:
     uses: keel-linux/.github/.github/workflows/test-python.yml@main
     with:
       threshold: 100
-      package: conf,ipaddr,ifutil,keelbanner,keelcli,dbscreen,wgcli,wgscreen,keelfirstboot,keelfit,keelmenu,plugins.d/Instance
+      package: conf,ipaddr,ifutil,keelbanner,keelcli,dbscreen,wgcli,wgscreen,keelfirstboot,keelfit,keelmenu,keelmode,meshscreen,plugins.d/Instance
   shell:
     # The shell files (share/autostart/confconsole-auto) under bats and
     # kcov, tests/coverage.sh: 100 percent, measured when the first bats

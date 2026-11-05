@@ -173,14 +173,19 @@ class TestDatabaseMode:
 class TestReplication:
     """Database mode > Cloud: only for an engine whose replication keel
     applies. keel validates primary and replica for every engine of
-    DATABASE_ENGINES but converges MariaDB's alone (system/database.py:
-    another engine is a note), so Redis and PostgreSQL get Standalone"""
+    DATABASE_ENGINES but converges MariaDB's and PostgreSQL's alone (each a
+    pair on the VIP, decisions 0049 and 0054), so Redis gets Standalone"""
 
     def test_mariadb_replicates(self, chains):
         assert keelmenu.place(REPLICATION, machine("mariadb")) == (
             keelmenu.SHOW)
 
-    @pytest.mark.parametrize("engine", ["postgresql", "redis"])
+    def test_postgresql_replicates(self, chains):
+        chains["db"] = resolved([overlay("postgresql", "postgresql")])
+
+        assert keelmenu.place(REPLICATION, machine("db")) == keelmenu.SHOW
+
+    @pytest.mark.parametrize("engine", ["redis"])
     def test_an_engine_keel_does_not_replicate_has_no_cloud(
         self, chains, engine
     ):
@@ -198,7 +203,8 @@ class TestReplication:
         assert keelmenu.place(REPLICATION, machine(None)) == keelmenu.SHOW
 
     @pytest.mark.parametrize("engine, expected", [
-        ("mariadb", True), ("redis", False), ("", False)])
+        ("mariadb", True), ("postgresql", True), ("redis", False),
+        ("", False)])
     def test_replicates(self, engine, expected):
         assert keelmenu.replicates(engine) is expected
 

@@ -410,10 +410,13 @@ class TestTexts:
 
     def test_the_package_asks_for_a_keel_with_skip_uplink(self):
         """An older keel dies in argparse on --skip-uplink, and before
-        0.11.2 refuses the confirmation from an LXC console"""
+        0.11.2 refuses the confirmation from an LXC console; the first
+        boot screens of decision 0076 need the JSON of keel mesh invite
+        and status, which 0.23.83 gives, so keel is a Depends"""
         control = (Path(__file__).resolve().parent.parent / "debian"
                    / "control").read_text()
-        assert " keel (>= 0.11.2),\n" in control
+        depends = control.split("\nDepends:\n", 1)[1].split("\nRecommends:")[0]
+        assert " keel (>= 0.23.83),\n" in depends + "\n"
         assert FIRST_WITH_OVERLAY == (0, 11)
 
     def test_apply_moves_the_overlay_and_never_the_uplink(self):

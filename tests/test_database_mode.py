@@ -233,6 +233,20 @@ class TestWhatTheScreensShow:
         assert "NO AUTOMATIC FAILOVER" in text
         assert "still says" in text
 
+    def test_promoting_a_node_of_a_pair_is_no_drift(self):
+        text = keelcli.promote_text(make_result(["database", "promote"]),
+                                    paired=True)
+
+        assert "moved the VIP" in text
+        assert "still says" not in text
+
+    def test_the_failover_note_is_the_callers(self):
+        text = keelcli.mode_text({"role": "replica"}, "p", make_result(
+            ["spec", "apply"]), keelcli.ADVANCED_FAILOVER)
+
+        assert keelcli.ADVANCED_FAILOVER in text
+        assert "NO AUTOMATIC FAILOVER" not in text
+
     def test_an_invalid_description_says_the_file_was_not_changed(self):
         text = keelcli.invalid_text(
             "/etc/keel/instance.yaml",
@@ -650,14 +664,12 @@ class TestTheScreensThemselves:
         assert loaded.module.__doc__.strip()
         assert callable(loaded.module.run)
 
-    @pytest.mark.parametrize("name", NAMES[1:])
-    def test_every_cloud_screen_states_that_there_is_no_failover(
-        self, screen, name
+    def test_the_promote_screen_states_that_there_is_no_failover(
+        self, screen
     ):
-        loaded, _ = screen(name)
-        text = getattr(loaded.module, "TEXT", None) or loaded.module.QUESTION
+        loaded, _ = screen("Cloud/03Promote_this_replica.py")
 
-        assert keelcli.NO_FAILOVER in text
+        assert keelcli.NO_FAILOVER in loaded.module.QUESTION
 
     def test_the_standalone_screen_says_it_configures_this_node(
         self, screen
@@ -666,22 +678,29 @@ class TestTheScreensThemselves:
 
         assert keelcli.THIS_NODE in loaded.module.TEXT
 
-    def test_the_primary_screen_asks_for_addresses_and_warns_about_a_name(
-        self, screen
+    @pytest.mark.parametrize("name, role", [
+        ("Cloud/01Primary.py", "primary"), ("Cloud/02Replica.py", "replica"),
+    ])
+    def test_the_cloud_screens_run_the_first_boots_flow(
+        self, screen, monkeypatch, name, role
     ):
-        loaded, _ = screen("Cloud/01Primary.py")
+        import meshscreen
 
-        assert "each replica's address" in loaded.module.TEXT
-        assert "every overlay peer" in loaded.module.TEXT
-        assert "prefer" not in loaded.module.TEXT
-        assert "fragile" in loaded.module.TEXT
+        ran = []
+        monkeypatch.setattr(meshscreen, "from_menu",
+                            lambda console, role: ran.append(role))
+        loaded, _ = screen(name)
+
+        loaded.module.run()
+
+        assert ran == [role]
 
     def test_the_replica_screen_says_the_local_database_is_replaced(
         self, screen
     ):
         loaded, _ = screen("Cloud/02Replica.py")
 
-        assert "REPLACES the database it holds" in loaded.module.TEXT
+        assert "REPLACED" in loaded.module.TEXT
 
     def test_the_standalone_screen_applies_its_own_role(
         self, screen, spec, keel
@@ -717,6 +736,39 @@ class TestTheScreensThemselves:
         assert keel["calls"] == [["database", "promote"]]
         question = [one for one in console.calls if one[0] == "yesno"][0][1]
         assert "two writable servers" in question
+
+    @pytest.mark.parametrize("choice, argv", [
+        ("Planned", ["database", "promote"]),
+        ("Old primary gone", ["database", "promote", "--old-primary-gone"]),
+    ])
+    def test_a_node_of_a_pair_says_whether_the_old_primary_is_gone(
+        self, screen, spec, keel, choice, argv
+    ):
+        document = {**BASE, "appliance": {"name": "mariadb",
+                                          "vip": "fd00::ffff:1"}}
+        spec.write_text(yaml.safe_dump(document))
+        loaded, console = screen("Cloud/03Promote_this_replica.py",
+                                 menus=[("ok", choice)])
+
+        loaded.module.run()
+
+        assert keel["calls"] == [argv]
+        _, title, text, choices = console.calls[0]
+        assert title == "Cloud: promote this replica"
+        assert [tag for tag, _ in choices] == ["Planned", "Old primary gone"]
+        assert "moved the VIP" in console.calls[-1][2]
+
+    def test_a_node_of_a_pair_that_cancels_promotes_nothing(
+        self, screen, spec, keel
+    ):
+        spec.write_text(yaml.safe_dump({**BASE, "appliance": {
+            "name": "mariadb", "vip": "fd00::ffff:1"}}))
+        loaded, _ = screen("Cloud/03Promote_this_replica.py",
+                           menus=[("esc", "")])
+
+        loaded.module.run()
+
+        assert keel["calls"] == []
 
     def test_declining_the_promotion_calls_nothing(self, screen, keel):
         loaded, _ = screen(

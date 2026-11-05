@@ -18,9 +18,9 @@ The rules, by the entry's path under plugins.d:
   an overlay that provides that engine or a service the application
   consumes, or a server the spec declares (database.server).
 - Instance/Database_mode/Cloud: only for an engine whose replication
-  keel applies (REPLICATING_ENGINES). keel validates primary and
-  replica for every engine but converges MariaDB's alone; for Redis and
-  PostgreSQL it notes that and changes nothing, so their Database mode
+  keel applies (REPLICATING_ENGINES): MariaDB and PostgreSQL, each a
+  pair on the VIP (decisions 0049, 0054). keel validates primary and
+  replica for Redis too but converges neither, so its Database mode
   offers Standalone only rather than roles nothing would make.
 - Instance/Overlay_network.py: the wireguard overlay in the chain. It is
   in the Instance menu in the cloud modes, where joining nodes is the
@@ -63,7 +63,7 @@ CLOUD_MODES = ("cloud_simple", "cloud_advanced")
 # couchdb) is one entry here
 DATA_ENGINES = frozenset({"mariadb", "postgresql", "redis"})
 # Those whose primary and replica keel applies, not only validates
-REPLICATING_ENGINES = frozenset({"mariadb"})
+REPLICATING_ENGINES = frozenset({"mariadb", "postgresql"})
 WIREGUARD = "wireguard"
 OK = "ok"
 
@@ -98,7 +98,9 @@ class Machine:
     has_server: bool = False
 
 
-def _engines(resolved) -> frozenset:
+def engines_of(resolved) -> frozenset:
+    """The data engines the chain's overlays provide or its application
+    consumes"""
     found = set()
     for state in resolved.overlays:
         found.add((state.manifest.get("provides") or {}).get("engine"))
@@ -124,7 +126,7 @@ def chain_of(name: str, root: str = ROOT) -> Chain | None:
     if resolved is None:
         return None
     return Chain(frozenset(state.name for state in resolved.overlays),
-                 _engines(resolved))
+                 engines_of(resolved))
 
 
 def _section(document: dict, key: str) -> dict:

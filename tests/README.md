@@ -77,7 +77,9 @@ them with the reason.
   (which screens a machine shows), `test_instance_menu.py` (the Instance
   menu entries), `test_database_mode.py` and `test_database_handout.py`
   (database mode), `test_overlay_screen.py` (the overlay network),
-  `test_first_boot.py` (first boot role and Keel Cloud key).
+  `test_first_boot.py` (the first boot steps: mode, role, Keel Cloud
+  key), `test_keelmode.py` (the Installation mode screen),
+  `test_meshscreen.py` (Invite a node, Join a mesh, the pair, the VIP).
 - Let's Encrypt: `test_lets_encrypt.py` (the certificate screen and the
   instance description).
 

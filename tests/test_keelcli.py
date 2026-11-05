@@ -136,6 +136,40 @@ class TestCall:
             ("keel", "diff", "--format", "json"), 14, "out\n", "err\n"
         )
 
+    def test_on_the_terminal_the_text_goes_on_stdin_and_nothing_is_kept(
+        self, monkeypatch
+    ):
+        # keel mesh join - and accept -: the token is never in argv, and
+        # what keel prints reaches the operator as it comes
+        seen = {}
+
+        def fake_run(command, **kwargs):
+            seen["command"] = command
+            seen["kwargs"] = kwargs
+            return subprocess.CompletedProcess(command, 21)
+
+        monkeypatch.setattr(keelcli.subprocess, "run", fake_run)
+
+        code = keelcli.run_on_terminal(["mesh", "join", "-"], "keel2:x\n")
+
+        assert code == 21
+        assert seen["command"] == ["keel", "mesh", "join", "-"]
+        # stderr on the terminal too: under inithooks.service this
+        # process's stderr is the journal, and keel's refusals are for
+        # the operator
+        assert seen["kwargs"] == {"input": "keel2:x\n", "text": True,
+                                  "stderr": subprocess.STDOUT,
+                                  "check": False}
+
+    def test_on_the_terminal_a_missing_keel_raises_too(self, monkeypatch):
+        def fake_run(command, **kwargs):
+            raise FileNotFoundError(2, "No such file or directory", "keel")
+
+        monkeypatch.setattr(keelcli.subprocess, "run", fake_run)
+
+        with pytest.raises(keelcli.KeelNotInstalled):
+            keelcli.run_on_terminal(["mesh", "accept", "-"], "x")
+
     def test_a_missing_keel_raises_one_clear_message(self, monkeypatch):
         def fake_run(command, **kwargs):
             raise FileNotFoundError(2, "No such file or directory", "keel")
