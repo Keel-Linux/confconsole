@@ -24,6 +24,14 @@ jobs:
     with:
       threshold: 100
       package: conf,ipaddr,ifutil,keelbanner,keelcli,dbscreen,wgcli,wgscreen,keelfirstboot,keelfit,keelmenu,plugins.d/Instance
+  shell:
+    # The shell files (share/autostart/confconsole-auto) under bats and
+    # kcov, tests/coverage.sh: 100 percent, measured when the first bats
+    # test landed (20 of 20 lines). The check is "tests / shell".
+    runs-on: keel-host
+    uses: keel-linux/.github/.github/workflows/test-shell.yml@main
+    with:
+      threshold: 100
   # A change that ships must come with a changelog entry, or it cannot be
   # installed and never reaches an appliance. The rule and its tests are
   # bin/require-changelog of the .github repository. The check is

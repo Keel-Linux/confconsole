@@ -80,3 +80,12 @@ them with the reason.
   `test_first_boot.py` (first boot role and Keel Cloud key).
 - Let's Encrypt: `test_lets_encrypt.py` (the certificate screen and the
   instance description).
+
+## The shell tests
+
+`tests/test-autostart.bats` tests `share/autostart/confconsole-auto`. It
+needs `bats` and `python3` (for the pty). `tests/coverage.sh` also needs
+`kcov`, and fails when a file under `share/` is below 100 percent:
+
+    bats tests
+    tests/coverage.sh
