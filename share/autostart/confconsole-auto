@@ -11,31 +11,58 @@
 #    - set "autostart false" /etc/confconsole/confconsole.conf; or
 #    - comment out or remove "autostart" in /etc/confconsole/confconsole.conf
 #    - make this script non-executable
-# 
+#
 # Note that if this script is non-executable, or not located in ~/.bashrc.d/
 # of a root or a sudo user account, confconsole will NOT autostart,
 # regardless of "autostart" value in /etc/confconsole/confconsole.conf.
+#
+# CONFCONSOLE_CONF names a different configuration file, for the tests.
 
+# Only an interactive shell on a terminal opens confconsole. bash also
+# reads ~/.bashrc in a shell that is not interactive when it sees
+# SSH_CLIENT: on BR2, 2026-11-05, `pct exec CT -- bash -c ...` from an ssh
+# session ran confconsole with no terminal, it stopped with a DialogError
+# traceback, and "autostart once" was spent.
+if [[ $- != *i* ]] || [ ! -t 0 ] || [ ! -t 1 ]; then
+    return
+fi
 
 # if "dumb" terminal (e.g. scp or others) exit straight away
 if [ "$TERM" = "dumb" ]; then
     return
 fi
 
-conf=/etc/confconsole/confconsole.conf
-autostart=$(sed -En "s|^autostart +([a-z]+).*|\1|p" $conf)
-while true; do
-    case "$autostart" in
-        once)
-            # disable autostart if set to "once"
-            sed -i "s|^autostart.*|autostart false|g" $conf
-            break;;
-        true)
-            break;;
-        *)
-            return;;
-    esac
-done
+conf=${CONFCONSOLE_CONF:-/etc/confconsole/confconsole.conf}
+autostart=$(sed -En "s|^autostart +([a-z]+).*|\1|p" "$conf")
+case "$autostart" in
+    once|true)
+        ;;
+    *)
+        return;;
+esac
+
+# First-boot initialization comes first, and "once" is kept for the login
+# after it. ~/.profile reads ~/.bashrc before ~/.profile.d, so this script
+# runs before the profile fence (~/.profile.d/turnkey-init-fence), which
+# starts keel-init when it is executable. On BR2, 2026-11-05, the first
+# login opened confconsole, spent "once", and keel-init never ran.
+# keel-init --status exits 75 while the first boot run is still pending
+# or in progress.
+if [ -x "$HOME/.profile.d/turnkey-init-fence" ]; then
+    return
+fi
+if command -v keel-init > /dev/null; then
+    keel_init_status=0
+    keel-init --status > /dev/null 2>&1 || keel_init_status=$?
+    if [ "$keel_init_status" -eq 75 ]; then
+        return
+    fi
+fi
+
+if [ "$autostart" = once ]; then
+    # disable autostart if set to "once"
+    sed -i "s|^autostart.*|autostart false|g" "$conf"
+fi
 
 # if not root use sudo (support for sudoadmin)
 if [ "$(whoami)" != "root" ]; then

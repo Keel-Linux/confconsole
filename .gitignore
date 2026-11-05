@@ -3,6 +3,8 @@
 .mypy_cache/
 .ruff_cache/
 .coverage
+# tests/coverage.sh (kcov)
+/coverage/
 **/*.swp
 
 # python build assets

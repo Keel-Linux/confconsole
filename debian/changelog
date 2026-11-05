@@ -1,3 +1,21 @@
+confconsole (2.2.3+keel20) trixie; urgency=low
+
+  * confconsole-auto opens confconsole only in an interactive shell on a
+    terminal. bash reads ~/.bashrc in a shell that is not interactive
+    when it sees SSH_CLIENT: on BR2, 2026-11-05, `pct exec` from an ssh
+    session ran confconsole with no terminal, it stopped with a
+    DialogError traceback, and "autostart once" was spent.
+  * confconsole-auto keeps "autostart once" while first-boot
+    initialization is pending: the profile fence
+    (~/.profile.d/turnkey-init-fence) is executable, or keel-init --status
+    exits 75. The first login then starts keel-init, and confconsole
+    opens at the login after it. On BR2, 2026-11-05, the first login
+    opened confconsole and keel-init never ran.
+  * tests/test-autostart.bats (13 tests) and tests/coverage.sh: bats
+    under kcov, 100 percent of confconsole-auto, gated in CI.
+
+ -- Marcos Mendez <mendez.foto@gmail.com>  Thu, 05 Nov 2026 19:00:00 +0000
+
 confconsole (2.2.3+keel19) trixie; urgency=low
 
   * The help links and the problem report address in the Let's Encrypt

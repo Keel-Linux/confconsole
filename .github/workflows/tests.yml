@@ -16,5 +16,10 @@ jobs:
       threshold: 100
       package: conf,ipaddr,ifutil,keelbanner,keelcli,dbscreen,wgcli,wgscreen,keelfirstboot,keelfit,keelmenu,plugins.d/Instance
 
+  shell:
+    uses: keel-linux/.github/.github/workflows/github-test-shell.yml@main
+    with:
+      threshold: 100
+
   package:
     uses: keel-linux/.github/.github/workflows/github-require-changelog.yml@main

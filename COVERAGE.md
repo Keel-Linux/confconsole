@@ -10,6 +10,17 @@ previous tip a2d9f70 (2025-10-02) was 50 commits behind and lacked the
 IPv6-aware rewrite of `ifutil.py` (upstream pull request #109), which is
 the file the static IPv6 work starts from.
 
+## Branch fix/first-login-keel-init: shell 100 percent (2026-11-05)
+
+The first shell file under test. `share/autostart/confconsole-auto` opens
+confconsole only in an interactive shell on a terminal, and keeps
+"autostart once" while the profile fence is armed or `keel-init --status`
+exits 75. `tests/test-autostart.bats` (13 tests) sources it from an
+interactive bash on a pty, with confconsole, sudo, whoami and keel-init
+replaced. `tests/coverage.sh` runs bats under kcov over `share/`: 20 of
+20 lines, 100 percent. The new CI job "tests / shell" gates it at 100.
+The Python gate is unchanged: 960 passed, 7 skipped, total 100.
+
 ## Branch feat/lets-encrypt-from-the-spec: 100 percent kept (2026-10-02)
 
 The Let's Encrypt screen reads and writes the instance description.
