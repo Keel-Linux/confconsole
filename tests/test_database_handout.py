@@ -451,292 +451,6 @@ class TestThePasswordAndTheDescription:
         assert not secret.exists()
 
 
-def primary_form(secret):
-    return [("ok", [f"{NODE6}, ::1", PREFIX, str(secret)])]
-
-
-class TestThePrimaryScreen:
-    def test_the_form_offers_this_nodes_address_ipv6_first(
-        self, screen, spec, keel, secret
-    ):
-        loaded, console = screen(
-            "Cloud/01Primary.py", forms=[("cancel", [])]
-        )
-
-        loaded.module.run()
-
-        listen = first_form(console)[2][0][3]
-        assert listen.startswith(f"{NODE6}, {NODE4}")
-
-    def test_the_form_offers_the_overlay_peers_addresses(
-        self, screen, spec, keel, machine
-    ):
-        machine[:] = [ULA6, PUBLIC6, NODE4]
-        spec.write_text(yaml.safe_dump({**BASE, "network": {"overlay": {
-            "wireguard": {"address": "fd3d:80b2:d0d7::1/64", "peers": [
-                {"public_key": "k" * 43 + "=",
-                 "allowed_ips": [f"{PEER6}/128"]},
-                {"public_key": "o" * 43 + "=",
-                 "allowed_ips": [f"{OTHER6}/128"]},
-            ]},
-        }}}))
-        loaded, console = screen(
-            "Cloud/01Primary.py", forms=[("cancel", [])]
-        )
-
-        loaded.module.run()
-
-        assert first_form(console)[2][1][3] == f"{PEER6}, {OTHER6}"
-
-    def test_a_declared_prefix_keel_refuses_is_flagged_and_replaced(
-        self, screen, spec, keel
-    ):
-        spec.write_text(yaml.safe_dump({
-            **BASE,
-            "database": {"server": {
-                "engine": "mariadb", "role": "primary",
-                "replication": {"allowed_from": ["fd3d:80b2:d0d7::/64"]},
-            }},
-            "network": {"overlay": {"wireguard": {
-                "address": "fd3d:80b2:d0d7::1/64", "peers": [
-                    {"public_key": "k" * 43 + "=",
-                     "allowed_ips": [f"{PEER6}/128"]},
-                ],
-            }}},
-        }))
-        loaded, console = screen(
-            "Cloud/01Primary.py", forms=[("cancel", [])]
-        )
-
-        loaded.module.run()
-
-        fields = first_form(console)[2]
-        assert fields[1][3] == PEER6
-        assert messages(console)[0].startswith(keelcli.refused_text(
-            ["fd3d:80b2:d0d7::/64"], [PEER6]
-        ))
-
-    def test_the_form_offers_no_prefix_of_this_node(
-        self, screen, spec, keel, machine
-    ):
-        machine[:] = [ULA6, PUBLIC6, NODE4]
-        loaded, console = screen(
-            "Cloud/01Primary.py", forms=[("cancel", [])]
-        )
-
-        loaded.module.run()
-
-        assert first_form(console)[2][1][3] == ""
-
-    def test_it_generates_applies_and_hands_out_once(
-        self, screen, spec, keel, secret, monkeypatch
-    ):
-        monkeypatch.setattr(keelcli, "generate_password", lambda: "g3n")
-        loaded, console = screen(
-            "Cloud/01Primary.py", forms=primary_form(secret), yesno=["ok"]
-        )
-
-        loaded.module.run()
-
-        server = server_from(spec)
-        assert server["role"] == "primary"
-        assert server["replication"]["secret"] == {"file": str(secret)}
-        assert secret.read_text() == "g3n\n"
-        handout = textboxes(console)[-1]
-        assert handout.index(NODE6) < handout.index("account: repl")
-        assert "g3n" in handout
-        assert str(secret) in handout
-        assert "NOT READY" not in handout
-        assert keelcli.NO_ORIGIN not in handout
-        for call in keel["calls"]:
-            assert all("g3n" not in one for one in call)
-        assert all("g3n" not in text for text in messages(console))
-
-    def test_the_handout_file_is_root_only_and_gone_afterwards(
-        self, screen, spec, keel, secret
-    ):
-        loaded, console = screen(
-            "Cloud/01Primary.py", forms=primary_form(secret), yesno=["ok"]
-        )
-
-        loaded.module.run()
-
-        _, _, _, where, mode = [
-            one for one in console.calls if one[0] == "textbox"
-        ][-1]
-        assert mode == 0o600
-        assert not os.path.exists(where)
-        assert not os.path.exists(os.path.dirname(where))
-
-    def test_a_failed_apply_still_shows_the_password_and_warns(
-        self, screen, spec, keel, secret, monkeypatch
-    ):
-        monkeypatch.setattr(keelcli, "generate_password", lambda: "g3n")
-        keel["answers"] = [(0, "", ""), (16, "database.server: failed", "")]
-        loaded, console = screen(
-            "Cloud/01Primary.py", forms=primary_form(secret), yesno=["ok"]
-        )
-
-        loaded.module.run()
-
-        handout = textboxes(console)[-1]
-        assert handout.startswith("THIS NODE IS NOT READY")
-        assert "exit 16" in handout
-        assert "g3n" in handout
-
-    def test_an_empty_origin_list_is_said_plainly(
-        self, screen, spec, keel, secret
-    ):
-        loaded, console = screen(
-            "Cloud/01Primary.py",
-            forms=[("ok", [NODE6, "  ", str(secret)])], yesno=["ok"],
-        )
-
-        loaded.module.run()
-
-        assert server_from(spec)["replication"]["allowed_from"] == []
-        assert keelcli.NO_ORIGIN in textboxes(console)[-1]
-
-    def test_a_password_already_there_is_not_shown_again(
-        self, screen, spec, keel, secret
-    ):
-        secret.parent.mkdir()
-        secret.write_text("0ld-v4lue\n")
-        loaded, console = screen(
-            "Cloud/01Primary.py", forms=primary_form(secret)
-        )
-
-        loaded.module.run()
-
-        assert questions(console) == []
-        assert "0ld-v4lue" not in textboxes(console)[-1]
-        assert "not shown here" in textboxes(console)[-1]
-        assert secret.read_text() == "0ld-v4lue\n"
-
-    def test_declining_every_password_changes_nothing(
-        self, screen, spec, keel, secret
-    ):
-        loaded, _ = screen(
-            "Cloud/01Primary.py", forms=primary_form(secret),
-            yesno=["cancel"], passwords=[("cancel", "")],
-        )
-
-        loaded.module.run()
-
-        assert yaml.safe_load(spec.read_text()) == BASE
-        assert keel["calls"] == []
-
-    def test_a_refused_description_hands_nothing_out(
-        self, screen, spec, keel, secret
-    ):
-        keel["answers"] = [(3, "", "bad")]
-        loaded, console = screen(
-            "Cloud/01Primary.py", forms=primary_form(secret), yesno=["ok"]
-        )
-
-        loaded.module.run()
-
-        assert "was NOT changed" in messages(console)[-1]
-        assert not secret.exists()
-
-
-def replica_form():
-    return [("ok", [PRIMARY_HOST, "", "::1"])]
-
-
-class TestTheReplicaScreen:
-    @pytest.fixture
-    def described(self, spec, secret):
-        """A description whose secret lives under the test's tmp dir"""
-        document = yaml.safe_load(spec.read_text())
-        document["database"]["server"]["replication"] = {
-            "secret": {"file": str(secret)}
-        }
-        spec.write_text(yaml.safe_dump(document))
-        return spec
-
-    def test_it_asks_the_address_and_the_password_never_a_file(
-        self, screen, described, keel, secret
-    ):
-        loaded, console = screen(
-            "Cloud/02Replica.py", forms=[("cancel", [])]
-        )
-
-        loaded.module.run()
-
-        labels = [field[0] for field in first_form(console)[2]]
-        assert "Replicate from (address)" in labels
-        assert not any("file" in label for label in labels)
-
-    def test_it_warns_before_it_acts_and_no_changes_nothing(
-        self, screen, described, keel, secret
-    ):
-        loaded, console = screen(
-            "Cloud/02Replica.py", forms=replica_form(),
-            passwords=[("ok", "p4ste")], yesno=["cancel"],
-        )
-
-        loaded.module.run()
-
-        assert "REPLACES the data" in questions(console)[0]
-        assert keel["calls"] == []
-        assert not secret.exists()
-        assert yaml.safe_load(described.read_text())["database"]["server"][
-            "role"
-        ] == "standalone"
-
-    def test_yes_writes_the_password_and_builds_the_replica(
-        self, screen, described, keel, secret
-    ):
-        loaded, console = screen(
-            "Cloud/02Replica.py", forms=replica_form(),
-            passwords=[("ok", "p4ste")], yesno=["ok"],
-        )
-
-        loaded.module.run()
-
-        server = server_from(described)
-        assert server["role"] == "replica"
-        assert server["replication"]["primary"] == {"host": PRIMARY_HOST}
-        assert server["replication"]["secret"] == {"file": str(secret)}
-        assert secret.read_text() == "p4ste\n"
-        assert os.stat(secret).st_mode & 0o777 == 0o600
-        applied = keel["calls"][-1]
-        assert applied[:2] == ["spec", "apply"]
-        for flag in ("--system-only", "--skip-network", "--defer-certificate"):
-            assert flag in applied
-        for call in keel["calls"]:
-            assert all("p4ste" not in one for one in call)
-
-    def test_keels_refusal_is_still_asked_after_the_warning(
-        self, screen, described, keel, secret
-    ):
-        keel["answers"] = [(0, "", ""), (16, REFUSAL, ""), (0, "", "")]
-        loaded, console = screen(
-            "Cloud/02Replica.py", forms=replica_form(),
-            passwords=[("ok", "p4ste")], yesno=["ok", "ok"],
-        )
-
-        loaded.module.run()
-
-        assert len(questions(console)) == 2
-        assert keel["calls"][-1][-1] == "--destroy-local-database"
-
-    def test_a_cancelled_password_changes_nothing(
-        self, screen, described, keel, secret
-    ):
-        loaded, console = screen(
-            "Cloud/02Replica.py", forms=replica_form(),
-            passwords=[("cancel", "")],
-        )
-
-        loaded.module.run()
-
-        assert questions(console) == []
-        assert keel["calls"] == []
-        assert not Path(secret).exists()
-
-
 class TestWritingAllAtOnce:
     def test_the_secret_leaves_nothing_beside_it(self, secret):
         keelcli.write_secret(str(secret), "one")
@@ -877,26 +591,28 @@ class TestThePrivateDirectory:
 
 
 class TestNoToTheDestroyQuestion:
+    """What the replica of a pair answers No to (meshscreen's replica runs
+    apply_mode with may_destroy), and the files it puts back"""
+
     REFUSAL = (
         "database.server.replication.primary: refused: becoming a replica"
         " replaces the local database with a copy of the primary\n"
     )
 
-    def run_replica(self, screen, answers):
-        loaded, console = screen(
-            "Cloud/02Replica.py", forms=replica_form(),
-            passwords=[("ok", "p4ste")], yesno=["ok", "cancel"],
-        )
-        loaded.module.run()
+    def run_replica(self, secret):
+        console = FakeConsole(yesno=["cancel"])
+        server = keelcli.replica_server("mariadb", "::1", PRIMARY_HOST, "",
+                                        str(secret))
+        dbscreen.apply_mode(console, "x", server, may_destroy=True,
+                            password="p4ste")
         return console
 
     def test_the_description_and_a_new_password_file_are_undone(
-        self, screen, spec, keel, secret, monkeypatch
+        self, spec, keel, secret
     ):
-        monkeypatch.setattr(keelcli, "DEFAULT_SECRET", str(secret))
         keel["answers"] = [(0, "", ""), (16, self.REFUSAL, "")]
 
-        console = self.run_replica(screen, keel)
+        console = self.run_replica(secret)
 
         assert yaml.safe_load(spec.read_text()) == BASE
         assert not secret.exists()
@@ -904,63 +620,47 @@ class TestNoToTheDestroyQuestion:
         assert keel["calls"][-1][:2] == ["spec", "apply"]
         assert "NOT a replica" in messages(console)[-1]
 
-    def test_a_password_that_was_there_is_put_back(
-        self, screen, spec, keel, secret, monkeypatch
-    ):
-        monkeypatch.setattr(keelcli, "DEFAULT_SECRET", str(secret))
+    def test_a_password_that_was_there_is_put_back(self, spec, keel, secret):
         keelcli.write_secret(str(secret), "0ld")
         keel["answers"] = [(0, "", ""), (16, self.REFUSAL, "")]
 
-        self.run_replica(screen, keel)
+        self.run_replica(secret)
 
         assert secret.read_text() == "0ld\n"
 
     def test_with_no_description_before_there_is_nothing_to_reapply(
-        self, screen, keel, secret, tmp_path, monkeypatch
+        self, keel, secret, tmp_path, monkeypatch
     ):
         absent = tmp_path / "instance.yaml"
-        monkeypatch.setattr(keelcli, "DEFAULT_SECRET", str(secret))
-        monkeypatch.setattr(
-            dbscreen, "engine_of", lambda console, title, server: "mariadb"
-        )
-        loaded, console = screen(
-            "Cloud/02Replica.py", forms=replica_form(),
-            passwords=[("ok", "p4ste")], yesno=["ok", "cancel"],
-        )
         monkeypatch.setenv("KEEL_SPEC", str(absent))
         keel["answers"] = [(0, "", ""), (16, self.REFUSAL, "")]
 
-        loaded.module.run()
+        console = self.run_replica(secret)
 
         assert not absent.exists()
         assert len(keel["calls"]) == 2
         assert "There was no" in messages(console)[-1]
 
     def test_a_file_that_cannot_be_put_back_is_named_and_not_reapplied(
-        self, screen, spec, keel, secret, monkeypatch
+        self, spec, keel, secret, monkeypatch
     ):
-        monkeypatch.setattr(keelcli, "DEFAULT_SECRET", str(secret))
         monkeypatch.setattr(keelcli, "restore", lambda where, text: "stuck")
         keel["answers"] = [(0, "", ""), (16, self.REFUSAL, "")]
 
-        console = self.run_replica(screen, keel)
+        console = self.run_replica(secret)
 
         assert len(keel["calls"]) == 2
         assert "could NOT be put back" in messages(console)[-1]
         assert "stuck" in messages(console)[-1]
 
     def test_an_old_description_without_a_server_is_not_reapplied(
-        self, screen, spec, keel, secret, monkeypatch
+        self, spec, keel, secret
     ):
         bare = {"version": 1, "instance": {"hostname": "mariadb"}}
         spec.write_text(yaml.safe_dump(bare))
-        monkeypatch.setattr(keelcli, "DEFAULT_SECRET", str(secret))
-        monkeypatch.setattr(
-            dbscreen, "engine_of", lambda console, title, server: "mariadb"
-        )
         keel["answers"] = [(0, "", ""), (16, self.REFUSAL, "")]
 
-        console = self.run_replica(screen, keel)
+        console = self.run_replica(secret)
 
         # validate and the refused apply: nothing of the old description
         # would converge the server back, so it is not claimed to.

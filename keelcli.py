@@ -35,6 +35,8 @@ DRIFT_FOUND = 14
 APPLY_NEEDS_ROOT = 15
 APPLY_FAILED = 16
 NETWORK_NOT_CONFIRMED = 21
+MESH_LINE_BAD = 23
+MESH_REFUSED = 24
 
 COMMON_MESSAGES = {
     OK: "done",
@@ -61,10 +63,21 @@ COMMAND_MESSAGES = {
         " the machine",
     },
     "promote": {
-        OK: "this node is a primary now; the description still says"
-        " replica, which keel diff reports as drift until you change it",
+        OK: "this node is the primary now",
         APPLY_FAILED: "nothing was promoted; the reason is above",
         APPLY_NEEDS_ROOT: "promoting must run as root",
+    },
+    # keel mesh and keel vip, docs/mesh.md "Exit codes"
+    "mesh": {
+        NETWORK_NOT_CONFIRMED: "applied and not confirmed: the other node"
+        " did not answer in time, and the change reverts by itself",
+        MESH_LINE_BAD: "the line is mistyped, cut, of a later keel, or"
+        " expired",
+        MESH_REFUSED: "refused: the reason is above",
+    },
+    "vip": {
+        APPLY_FAILED: "not done: the reason is above",
+        MESH_REFUSED: "refused: the reason is above",
     },
     "confirm": {
         OK: "confirmed: the network change stays",
@@ -135,6 +148,28 @@ def call(argv: list[str]) -> Result:
     except FileNotFoundError:
         raise KeelNotInstalled(NOT_INSTALLED) from None
     return Result(tuple(command), proc.returncode, proc.stdout, proc.stderr)
+
+
+def run_on_terminal(argv: list[str], text: str) -> int:
+    """Run ``keel`` with ``argv`` and `text` on its standard input; its
+    output goes to the terminal as it comes. The exit code.
+
+    For ``keel mesh join -`` and ``keel mesh accept -``: a token is a
+    secret, so it goes on standard input and never in the process list;
+    and both commands can wait for minutes for the other node after they
+    printed a line the operator needs now (the ``keel1a:`` line of the
+    fallback), which a captured output would hold back until the end.
+    Standard error goes to the terminal too: under inithooks.service this
+    process's own standard error is the journal, and keel's refusals and
+    confirmation lines are for the operator. keel prints no token on
+    either stream.
+    """
+    try:
+        proc = subprocess.run([KEEL, *argv], input=text, text=True,
+                              stderr=subprocess.STDOUT, check=False)
+    except FileNotFoundError:
+        raise KeelNotInstalled(NOT_INSTALLED) from None
+    return proc.returncode
 
 
 def describe_exit(command: str, code: int) -> str:
@@ -300,6 +335,20 @@ NO_FAILOVER = (
     " node takes over by itself: promoting a replica is something you do,"
     " on that replica, from this menu. Replication without failover is not"
     " high availability."
+)
+ADVANCED_FAILOVER = (
+    "Cloud advanced: etcd has three voters, so when the primary stops the"
+    " VIP and the database move to the replica by themselves (decisions"
+    " 0020 and 0057)."
+)
+PAIR_PROMOTED = (
+    "keel moved the VIP to this node first. The role the description"
+    " declares is the role chosen at installation: on a node of a pair"
+    " keel diff shows it as information, not as drift (decision 0049)."
+)
+UNPAIRED_PROMOTED = (
+    "The description still says replica, which keel diff reports as drift"
+    " until you change it."
 )
 THIS_NODE = (
     "This screen configures THIS node only. It does not create replicas,"
@@ -504,14 +553,16 @@ def was_refused(result: Result) -> str:
     return ""
 
 
-def mode_text(server: dict, path: str, result: Result) -> str:
-    """The screen an operator reads after a mode was applied"""
+def mode_text(server: dict, path: str, result: Result,
+              note: str = NO_FAILOVER) -> str:
+    """The screen an operator reads after a mode was applied; `note` is
+    what the failover is, NO_FAILOVER but in cloud advanced"""
     role = str(server.get("role", "?"))
     return (
         f"{path}: database.server.role: {role}\n\n"
         f"$ {result.command}\n{result.output}\n\n"
         f"{describe_exit('apply', result.code)}\n\n{LEFT_ALONE}\n\n"
-        f"{NO_FAILOVER}"
+        f"{note}"
     )
 
 
@@ -580,12 +631,20 @@ def invalid_text(path: str, result: Result) -> str:
     )
 
 
-def promote_text(result: Result) -> str:
-    """The screen an operator reads after promoting this replica"""
-    return (
-        f"$ {result.command}\n{result.output}\n\n"
-        f"{describe_exit('promote', result.code)}\n\n{NO_FAILOVER}"
-    )
+def promote_text(result: Result, paired: bool = False) -> str:
+    """The screen an operator reads after promoting this replica
+
+    On a node of a pair (`appliance.vip`) keel moved the VIP first, and
+    the role the description declares is information, never drift
+    (decision 0049); a node without a VIP still has 0013's drift.
+    """
+    lines = [f"$ {result.command}\n{result.output}",
+             describe_exit("promote", result.code)]
+    if paired:
+        lines.append(PAIR_PROMOTED)
+    else:
+        lines += [UNPAIRED_PROMOTED, NO_FAILOVER]
+    return "\n\n".join(lines)
 
 
 # --- the Let's Encrypt screen ----------------------------------------------
@@ -661,7 +720,16 @@ def save_acme(path: str, document: dict, domains: list[str]) -> str:
     Staged and validated before anything replaces the description, as
     every Instance screen does it.
     """
-    staged, problem = stage_spec(with_acme(document, domains), path)
+    return save_spec(path, with_acme(document, domains))
+
+
+def save_spec(path: str, document: dict) -> str:
+    """Stage, validate and commit `document` as the description at `path`
+
+    No dialog: a first boot step that runs with no terminal records with
+    it too. The problem, worded for the operator, or "".
+    """
+    staged, problem = stage_spec(document, path)
     if problem:
         return problem
     try:

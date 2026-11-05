@@ -1,3 +1,50 @@
+confconsole (2.2.3+keel21) trixie; urgency=low
+
+  * The first boot screens of handbook decision 0076: the installation
+    mode, the role of the node, and the mesh and the pair by keel mesh
+    and keel vip. The operator copies one invite line from node to node,
+    and types no key, address, port, VIP or password.
+    - keelfirstboot.py mode (keelmode.py), screen "Installation mode":
+      Simple, Cloud simple or Cloud advanced, only the modes the
+      appliance's manifest allows (modes:, keel.manifest.facts.gather).
+      It writes appliance.name, installation.mode and every overlay of
+      the chain at that mode's column, and applies. Skipped when the
+      description declares installation.mode. Under keel-init a node
+      with a mode sees it, and cloud simple may move to cloud advanced
+      (decision 0057). An appliance that allows one mode records it with
+      no screen.
+    - keelfirstboot.py role, screen "Role of this node": in cloud simple
+      Primary or Replica, in cloud advanced also Witness where the
+      manifest says witness: true (Keel Core). A simple node has no role
+      screen: a database appliance records database.server.role:
+      standalone, now for every engine and with no terminal too.
+    - meshscreen.py, the flows: "Make the mesh" (keel mesh create),
+      "Invite a node" (keel mesh invite --json; the line is printed as
+      plain text on one line, outside any dialog), "Waiting for the
+      nodes" (keel mesh status --json every 5 s; members, and in cloud
+      advanced 3 healthy etcd voters, so that keel vip promote gets an
+      etcd lease), "Paste accept line" (keel mesh accept -),
+      "Join a mesh" (keel mesh join -, the token on standard input),
+      "Primary of the pair", "Pair with the primary" (keel vip pair,
+      then the apply that replaces the local database, behind the
+      question that says so), "Take the VIP" (keel vip promote) and
+      "Status of this node" (keel vip status, keel mesh status, keel
+      database status). The VIP comes from the invite and the join, never
+      from the operator. Keel Web pairs its files only; Keel Core pairs
+      nothing.
+    - Database mode > Cloud > Primary and Replica run these flows; the
+      typed flow of decision 0013 (the peer's key, the address, the
+      password shown once) is gone from them. Promote this replica asks,
+      on a node of a pair, whether the old primary is gone
+      (keel database promote --old-primary-gone).
+    - PostgreSQL is a replicating engine (keelmenu.REPLICATING_ENGINES).
+    - A step that has a question and no terminal exits 75, so that
+      inithooks leaves it to keel-init.
+  * tests: test_keelmode.py (40), test_meshscreen.py (89), the first boot
+    tests rewritten for the steps. Python coverage stays 100 percent.
+
+ -- Marcos Mendez <mendez.foto@gmail.com>  Thu, 05 Nov 2026 22:00:00 +0000
+
 confconsole (2.2.3+keel20) trixie; urgency=low
 
   * confconsole-auto opens confconsole only in an interactive shell on a

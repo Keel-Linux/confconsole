@@ -1,44 +1,17 @@
-"""This node replicates from another"""
+"""Second node: the join, the pair, the copy"""
 
-import dbscreen
-import keelcli
+import meshscreen
 
-TITLE = "Cloud: replica"
+TITLE = meshscreen.JOIN_TITLE
 TEXT = (
-    "This node replicates from another. A replica is a COPY of its"
-    " primary, so making this node one REPLACES the database it holds"
-    " now. keel refuses unless this server holds nothing of its own, and"
-    " asks before it destroys anything.\n\n"
-    "Give the primary's literal IPv6 address, never a name: on Debian"
-    " localhost is not an IPv6 name. The primary's own screen shows the"
-    " address, and the password asked for next.\n\n"
-    + keelcli.THIS_NODE + "\n\n" + keelcli.NO_FAILOVER
+    "The first boot's Replica flow (decision 0076): this node joins the"
+    " mesh with the line the primary shows, writes the VIP the join"
+    " received, pairs with the primary (keel vip pair), and then becomes"
+    " a COPY of it: the database it holds now is REPLACED, and keel asks"
+    " before it destroys anything. A step that is done already is not"
+    " done again."
 )
 
 
 def run():
-    answers = dbscreen.ask(
-        console, TITLE, TEXT,
-        [
-            ("Replicate from (address)", "host", 26, 42),
-            ("Port (blank: default)", "port", 26, 42),
-            ("Answer on (addresses)", "listen", 26, 42),
-        ],
-    )
-    if answers is None:
-        return
-    server = keelcli.replica_server(
-        answers["engine"], answers["listen"],
-        answers["host"], answers["port"], answers["secret"],
-    )
-    password = dbscreen.replica_password(
-        console, TITLE, dbscreen.secret_path(server)
-    )
-    if password is None:
-        return
-    question = keelcli.replica_warning(answers["host"].strip())
-    if console.yesno(question, autosize=True) != "ok":
-        return
-    dbscreen.apply_mode(
-        console, TITLE, server, may_destroy=True, password=password
-    )
+    meshscreen.from_menu(console, meshscreen.REPLICA)

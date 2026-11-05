@@ -10,6 +10,20 @@ previous tip a2d9f70 (2025-10-02) was 50 commits behind and lacked the
 IPv6-aware rewrite of `ifutil.py` (upstream pull request #109), which is
 the file the static IPv6 work starts from.
 
+## Branch feat/decision-0076-first-boot-screens: 100 percent kept (2026-11-05)
+
+Two new modules join the measured set, both at 100 percent of lines and
+branches: `keelmode.py` (the Installation mode step, 40 tests in
+`tests/test_keelmode.py`) and `meshscreen.py` (Invite a node, Join a
+mesh, the waits, the pair, the VIP and the status screen, 89 tests in
+`tests/test_meshscreen.py`). The package lists of both workflows name
+them. `keelfirstboot.py` lost the typed overlay and database steps of
+decision 0013 and their tests; `tests/test_first_boot.py` now tests the
+mode, role and cloud steps and the deferral to keel-init. The
+plugin-driven tests of the old Cloud Primary and Replica screens are
+gone; their rollback cases call `dbscreen.apply_mode` directly. 1077
+passed, 7 skipped, total 100. Shell unchanged (20 of 20 lines).
+
 ## Branch fix/first-login-keel-init: shell 100 percent (2026-11-05)
 
 The first shell file under test. `share/autostart/confconsole-auto` opens

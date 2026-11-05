@@ -1,11 +1,13 @@
-"""The first boot screens: this node's role, then the Keel Cloud key.
+"""The first boot screens: the mode, this node's role, then the Keel
+Cloud key.
 
-Handbook decision 0020: the role is chosen at installation, by hand, on
-each node, and a Keel Cloud API key is offered there and never required.
-keelfirstboot.py is the entry point the inithooks hooks call; the steps of
-a primary or a replica are confconsole's own overlay and database mode
-screens. No dialog opens and no keel runs: keelcli.call is replaced, and
-the console is the scripted fake of conftest.
+Handbook decisions 0020, 0028 and 0076: the mode and the role are chosen
+at installation, by hand, on each node, and a Keel Cloud API key is
+offered there and never required. keelfirstboot.py is the entry point the
+inithooks hooks call; the mode is keelmode's screen and the flows of a
+cloud node are meshscreen's (their own tests). No dialog opens and no keel
+runs: keelcli.call is replaced, and the console is the scripted fake of
+conftest.
 """
 
 import os
@@ -21,17 +23,13 @@ import yaml
 import dbscreen
 import keelcli
 import keelfirstboot
+import keelmode
+import meshscreen
 import plugin
-import wgscreen
 from conftest import FakeConsole, make_result
 from test_overlay_screen import keel_with_overlay
 
-THIS_KEY = "d+/mhJ0q/+k98Qcrm0cE/3nDyD+zg3KbaFaMMOTAvVw="
-PEER_KEY = "0niNkgzhpbKmTSrWCzukb6jaYogKZkGhW+xWlh52Mh8="
 SERVER = {"engine": "mariadb", "role": "standalone"}
-OVERLAY = {"address": "fd00:6b65:1::2/64"}
-PEER = {"public_key": PEER_KEY, "allowed_ips": ["fd00:6b65:1::1/128"],
-        "endpoint": "[2001:db8::10]:51820"}
 ENTRY = (Path(__file__).resolve().parent.parent / "plugins.d" / "Instance"
          / "Keel_Cloud.py")
 
@@ -105,9 +103,11 @@ class TestMain:
     def steps(self, monkeypatch):
         ran = []
         monkeypatch.setattr(keelfirstboot, "STEPS", {
+            "mode": lambda *args: ran.append(("mode", *args)),
             "role": lambda *args: ran.append(("role", *args)),
             "cloud": lambda *args: ran.append(("cloud", *args)),
         })
+        monkeypatch.setattr(keelfirstboot, "UNATTENDED", {})
         monkeypatch.setattr(keelfirstboot, "make_console", lambda: "console")
         monkeypatch.setattr(keelfirstboot, "draw_on_terminal", lambda: True)
         return ran
@@ -117,7 +117,7 @@ class TestMain:
         self, argv, capsys, steps
     ):
         assert keelfirstboot.main(argv, {}) == 1
-        assert "role|cloud" in capsys.readouterr().err
+        assert "mode|role|cloud" in capsys.readouterr().err
         assert steps == []
 
     def test_the_script_is_its_own_entry_point(self, monkeypatch, capsys):
@@ -127,7 +127,7 @@ class TestMain:
             runpy.run_path(keelfirstboot.__file__, run_name="__main__")
 
         assert stopped.value.code == 1
-        assert "role|cloud" in capsys.readouterr().err
+        assert "mode|role|cloud" in capsys.readouterr().err
 
     def test_the_role_is_asked_on_a_terminal(self, keel, spec, steps):
         spec({"version": 1})
@@ -174,16 +174,98 @@ class TestMain:
         assert steps == []
         assert "keel is not installed" in capsys.readouterr().err
 
-    def test_without_a_terminal_the_node_stays_standalone(
+    @pytest.mark.parametrize("step", ["mode", "role"])
+    def test_a_question_with_no_terminal_is_left_to_keel_init(
+        self, keel, spec, steps, monkeypatch, capsys, step
+    ):
+        spec({"version": 1})
+        monkeypatch.setattr(keelfirstboot, "draw_on_terminal", lambda: False)
+
+        assert keelfirstboot.main([step], {}) == keelfirstboot.DEFERRED
+
+        assert steps == []
+        assert "keel-init asks" in capsys.readouterr().err
+
+    def test_the_cloud_key_with_no_terminal_is_not_deferred(
         self, keel, spec, steps, monkeypatch, capsys
     ):
         spec({"version": 1})
         monkeypatch.setattr(keelfirstboot, "draw_on_terminal", lambda: False)
 
+        assert keelfirstboot.main(["cloud"], {}) == 0
+
+        assert "no Keel Cloud key" in capsys.readouterr().err
+
+    def test_a_step_with_one_answer_needs_no_terminal(
+        self, keel, spec, steps, monkeypatch
+    ):
+        ran = []
+        monkeypatch.setattr(keelfirstboot, "UNATTENDED", {
+            "mode": lambda path, document: ran.append(path) or 0})
+        monkeypatch.setattr(keelfirstboot, "draw_on_terminal", pytest.fail)
+        spec({"version": 1})
+
+        assert keelfirstboot.main(["mode"], {}) == 0
+
+        assert ran == [str(spec.path)]
+        assert steps == []
+
+    def test_a_step_with_a_question_goes_on_to_the_terminal(
+        self, keel, spec, steps, monkeypatch
+    ):
+        monkeypatch.setattr(keelfirstboot, "UNATTENDED", {
+            "mode": lambda path, document: None})
+        spec({"version": 1})
+
+        keelfirstboot.main(["mode"], {})
+
+        assert [one[0] for one in steps] == ["mode"]
+
+    def test_a_declared_mode_is_not_asked(self, keel, spec, steps, capsys):
+        # I2 of decision 0076: a preseeded mode skips the step
+        spec({"version": 1, "installation": {"mode": "cloud_simple"}})
+
+        assert keelfirstboot.main(["mode"], {}) == 0
+
+        assert steps == []
+        assert "installation.mode is declared (cloud_simple)" in (
+            capsys.readouterr().err)
+
+    def test_keel_init_asks_even_a_declared_mode(self, keel, spec, steps):
+        spec({"version": 1, "installation": {"mode": "cloud_simple"}})
+
+        keelfirstboot.main(["mode"], {"_TURNKEY_INIT": "1"})
+
+        assert [one[0] for one in steps] == ["mode"]
+
+    def test_a_cloud_node_in_a_mesh_is_not_asked_its_role(
+        self, keel, spec, steps, capsys
+    ):
+        spec({"version": 1, "installation": {"mode": "cloud_advanced"},
+              "network": {"overlay": {"wireguard": {
+                  "address": "fd00::3/64"}}}})
+
         assert keelfirstboot.main(["role"], {}) == 0
 
         assert steps == []
-        assert "stays standalone" in capsys.readouterr().err
+        assert "in a mesh already (fd00::3/64)" in capsys.readouterr().err
+
+    def test_a_simple_node_with_an_overlay_is_asked_as_any_other(
+        self, keel, spec, steps
+    ):
+        spec({"version": 1, "installation": {"mode": "simple"},
+              "network": {"overlay": {"wireguard": {
+                  "address": "fd00::3/64"}}}})
+
+        keelfirstboot.main(["role"], {})
+
+        assert [one[0] for one in steps] == ["role"]
+
+    def test_the_steps_are_the_modules(self):
+        assert keelfirstboot.STEPS["mode"] is keelmode.choose
+        assert keelfirstboot.UNATTENDED == {
+            "mode": keelmode.unattended,
+            "role": keelfirstboot.unattended_role}
 
     def test_a_declared_key_is_not_asked(self, keel, spec, steps, capsys):
         spec({"version": 1, "hub": {"api_key": "skip"}})
@@ -332,126 +414,183 @@ class TestTheTerminal:
 
 
 class TestTheRole:
-    """One menu, Standalone first, and each choice's steps"""
+    """A cloud node is asked its role; Witness only where the manifest
+    says so, in cloud advanced"""
 
     @pytest.fixture
     def flows(self, monkeypatch):
         ran = []
-        for name in ("standalone", "primary", "replica"):
+        monkeypatch.setattr(dbscreen, "database_server_installed",
+                            lambda: False)
+        for name in ("primary", "replica", "witness"):
             monkeypatch.setitem(
-                keelfirstboot.ROLES, name,
-                lambda *args, name=name: ran.append((name, *args[3:])))
+                meshscreen.ROLES, name,
+                lambda console, node, name=name: ran.append((name, node)))
         return ran
 
-    def test_the_menu_offers_standalone_first(self, keel, spec, flows):
-        spec({"version": 1, "database": {"server": {"engine": "mariadb"}}})
-        console = FakeConsole(menus=[("ok", "Standalone")])
+    def cloud(self, mode, name="mariadb", **more):
+        return {"version": 1, "appliance": {"name": name},
+                "installation": {"mode": mode}, **more}
 
-        keelfirstboot.choose_role(console, str(spec.path), read(spec.path))
-
-        _, title, text, choices = console.calls[0]
-        assert title == keelfirstboot.ROLE_TITLE
-        assert [tag for tag, _ in choices] == [
-            "Standalone", "Primary", "Replica"]
-        assert "Standalone is the default" in text
-        assert flows == [("standalone", {"engine": "mariadb"}, "mariadb")]
-
-    @pytest.mark.parametrize("engine", ["redis", "postgresql"])
-    def test_an_engine_keel_does_not_replicate_is_not_asked(
-        self, keel, spec, flows, capsys, engine
+    def test_cloud_simple_offers_primary_and_replica(
+        self, keel, spec, flows, manifests
     ):
-        # keel validates primary and replica for Redis and PostgreSQL but
-        # applies neither; offering them would write a role nothing makes
-        spec({"version": 1, "database": {"server": {"engine": engine}}})
-        console = FakeConsole()
-
-        keelfirstboot.choose_role(console, str(spec.path), read(spec.path))
-
-        assert console.calls == []
-        assert flows == []
-        err = capsys.readouterr().err
-        assert f"keel does not apply {engine} replication yet" in err
-        assert "stays standalone" in err
-
-    def test_the_declared_role_is_named_when_keel_init_asks_again(
-        self, keel, spec, flows
-    ):
-        spec({"version": 1, "database": {"server": {
-            **SERVER, "role": "primary"}}})
+        spec(self.cloud("cloud_simple"))
         console = FakeConsole(menus=[("ok", "Replica")])
 
         keelfirstboot.choose_role(console, str(spec.path), read(spec.path))
 
-        assert "The description says: primary" in console.calls[0][2]
-        assert console.menu_kwargs["default_item"] == "Primary"
-        assert flows[0][0] == "replica"
+        _, title, text, choices = console.calls[0]
+        assert title == keelfirstboot.ROLE_TITLE == "Role of this node"
+        assert [tag for tag, _ in choices] == ["Primary", "Replica"]
+        assert "set of two" in text
+        assert console.menu_kwargs == {"no_cancel": True,
+                                       "default_item": "Primary"}
+        assert flows == [("replica", meshscreen.Node(
+            str(spec.path), "cloud_simple", "replica", "mariadb"))]
 
-    def test_a_node_with_no_role_yet_defaults_to_standalone(
-        self, keel, spec, flows
+    def test_cloud_advanced_on_core_offers_the_witness(
+        self, keel, spec, flows, manifests
     ):
-        spec({"version": 1, "database": {"server": {"engine": "mariadb"}}})
-        console = FakeConsole(menus=[("ok", "Standalone")])
+        spec(self.cloud("cloud_advanced", name="core"))
+        console = FakeConsole(menus=[("ok", "Witness")])
 
         keelfirstboot.choose_role(console, str(spec.path), read(spec.path))
 
-        assert console.menu_kwargs["default_item"] == "Standalone"
+        _, _, text, choices = console.calls[0]
+        assert [tag for tag, _ in choices] == [
+            "Primary", "Replica", "Witness"]
+        assert "Witness: the third node" in text
+        assert flows[0][0] == "witness"
 
-    def test_the_engine_comes_from_the_machine_when_undeclared(
-        self, keel, spec, flows, monkeypatch
-    ):
-        spec({"version": 1})
-        monkeypatch.setattr(keelfirstboot, "database_server_installed",
-                            lambda: True)
-        monkeypatch.setattr(dbscreen, "observed_engine",
-                            lambda: ("mariadb", "", ""))
+    @pytest.mark.parametrize("name, mode", [
+        ("mariadb", "cloud_advanced"), ("core", "cloud_simple")])
+    def test_no_witness_elsewhere(self, keel, spec, flows, manifests, name,
+                                  mode):
+        spec(self.cloud(mode, name=name))
         console = FakeConsole(menus=[("ok", "Primary")])
 
         keelfirstboot.choose_role(console, str(spec.path), read(spec.path))
 
-        assert flows == [("primary", {}, "mariadb")]
+        assert "Witness" not in [tag for tag, _ in console.calls[0][3]]
 
-    def test_no_server_binary_means_no_role_and_no_keel_inspect(
-        self, keel, spec, flows, monkeypatch, capsys
-    ):
-        # 2026-10-02: keel inspect took 2 s on a Web container (8 s with a
-        # quarter of a CPU) to say what the missing server binary says
-        spec({"version": 1})
-        monkeypatch.setattr(keelfirstboot, "database_server_installed",
-                            lambda: False)
-        monkeypatch.setattr(dbscreen, "observed_engine", pytest.fail)
-        console = FakeConsole()
+    def test_the_declared_role_is_highlighted(self, keel, spec, flows,
+                                              manifests):
+        spec(self.cloud("cloud_simple", database={"server": {
+            **SERVER, "role": "replica"}}))
+        console = FakeConsole(menus=[("ok", "Replica")])
 
         keelfirstboot.choose_role(console, str(spec.path), read(spec.path))
 
-        assert console.calls == []
-        assert flows == []
-        assert "no database server" in capsys.readouterr().err
-
-    def test_a_machine_without_a_database_server_has_no_role_to_ask(
-        self, keel, spec, flows, monkeypatch, capsys
-    ):
-        spec({"version": 1})
-        monkeypatch.setattr(keelfirstboot, "database_server_installed",
-                            lambda: True)
-        monkeypatch.setattr(dbscreen, "observed_engine",
-                            lambda: ("", "nothing", ""))
-        console = FakeConsole()
-
-        keelfirstboot.choose_role(console, str(spec.path), read(spec.path))
-
-        assert console.calls == []
-        assert flows == []
-        assert "no database server" in capsys.readouterr().err
+        assert console.menu_kwargs["default_item"] == "Replica"
 
     def test_a_menu_that_did_not_answer_changes_nothing(
-        self, keel, spec, flows
+        self, keel, spec, flows, manifests
     ):
-        spec({"version": 1, "database": {"server": SERVER}})
+        spec(self.cloud("cloud_simple"))
         console = FakeConsole(menus=[("esc", "")])
 
         keelfirstboot.choose_role(console, str(spec.path), read(spec.path))
 
         assert flows == []
+
+    def test_a_simple_node_has_no_role_screen(self, keel, spec, flows):
+        spec({"version": 1, "installation": {"mode": "simple"},
+              "database": {"server": {"engine": "postgresql"}}})
+        console = FakeConsole()
+
+        keelfirstboot.choose_role(console, str(spec.path), read(spec.path))
+
+        assert console.calls == []
+        assert read(spec.path)["database"]["server"]["role"] == "standalone"
+
+
+class TestTheRoleWithNoTerminal:
+    """What the role step does by itself, before a terminal is asked for"""
+
+    def test_a_cloud_node_is_asked(self, spec):
+        assert keelfirstboot.unattended_role(str(spec.path), {
+            "installation": {"mode": "cloud_simple"}}) is None
+
+    def test_no_mode_yet_waits_for_the_mode(self, spec, manifests, capsys):
+        found = keelfirstboot.unattended_role(str(spec.path), {
+            "appliance": {"name": "core"}})
+
+        assert found == 0
+        assert "the role follows the mode" in capsys.readouterr().err
+
+    @pytest.mark.parametrize("engine", ["mariadb", "postgresql", "redis"])
+    def test_a_simple_database_records_standalone(self, keel, spec, engine,
+                                                  capsys):
+        spec({"version": 1, "installation": {"mode": "simple"},
+              "database": {"server": {"engine": engine}}})
+
+        assert keelfirstboot.unattended_role(str(spec.path),
+                                             read(spec.path)) == 0
+
+        assert read(spec.path)["database"]["server"] == {
+            "engine": engine, "role": "standalone"}
+        assert commands(keel) == ["spec validate"]
+        assert "recorded database.server.role: standalone" in (
+            capsys.readouterr().err)
+
+    def test_a_machine_of_before_0041_is_simple(self, keel, spec,
+                                                monkeypatch, tmp_path):
+        monkeypatch.setattr(keelmode, "ROOT", str(tmp_path))
+        spec({"version": 1, "database": {"server": {"engine": "mariadb"}}})
+
+        keelfirstboot.unattended_role(str(spec.path), read(spec.path))
+
+        assert read(spec.path)["database"]["server"]["role"] == "standalone"
+
+    def test_a_declared_role_is_left(self, keel, spec, capsys):
+        keelfirstboot.record_standalone(str(spec.path), {
+            "database": {"server": SERVER}})
+
+        assert keel["calls"] == []
+        assert "is declared (standalone)" in capsys.readouterr().err
+
+    def test_no_server_records_nothing(self, keel, spec, monkeypatch,
+                                       capsys):
+        monkeypatch.setattr(dbscreen, "database_server_installed",
+                            lambda: False)
+
+        keelfirstboot.record_standalone(str(spec.path), {"version": 1})
+
+        assert keel["calls"] == []
+        assert "no database server" in capsys.readouterr().err
+
+    def test_the_engine_comes_from_the_machine_when_undeclared(
+        self, keel, spec, monkeypatch
+    ):
+        spec({"version": 1})
+        monkeypatch.setattr(dbscreen, "database_server_installed",
+                            lambda: True)
+        monkeypatch.setattr(dbscreen, "observed_engine",
+                            lambda: ("mariadb", "", ""))
+
+        keelfirstboot.record_standalone(str(spec.path), read(spec.path))
+
+        assert read(spec.path)["database"]["server"]["engine"] == "mariadb"
+
+    def test_no_server_binary_means_no_keel_inspect(self, monkeypatch):
+        # 2026-10-02: keel inspect took 2 s on a Web container (8 s with a
+        # quarter of a CPU) to say what the missing server binary says
+        monkeypatch.setattr(dbscreen, "database_server_installed",
+                            lambda: False)
+        monkeypatch.setattr(dbscreen, "observed_engine", pytest.fail)
+
+        assert dbscreen.find_engine({}) == ""
+
+    def test_a_record_keel_refuses_is_said(self, keel, spec, capsys):
+        spec({"version": 1})
+        keel["answers"]["spec validate"] = [(3, "", "bad")]
+
+        keelfirstboot.record_standalone(str(spec.path), {
+            "version": 1, "database": {"server": {"engine": "mariadb"}}})
+
+        assert read(spec.path) == {"version": 1}
+        assert "was NOT changed" in capsys.readouterr().err
 
 
 class TestTheServerBinaries:
@@ -476,17 +615,17 @@ class TestTheServerBinaries:
         binary.parent.mkdir(parents=True)
         binary.touch()
 
-        assert keelfirstboot.database_server_installed(str(tmp_path))
+        assert dbscreen.database_server_installed(str(tmp_path))
 
     def test_no_server_binary_is_not_installed(self, engines, tmp_path):
         engines("usr/sbin/mariadbd", "usr/sbin/mysqld")
 
-        assert not keelfirstboot.database_server_installed(str(tmp_path))
+        assert not dbscreen.database_server_installed(str(tmp_path))
 
     def test_without_keel_s_table_keel_is_asked(self, monkeypatch, tmp_path):
         monkeypatch.setitem(sys.modules, "keel.inspect.dbengines", None)
 
-        assert keelfirstboot.database_server_installed(str(tmp_path))
+        assert dbscreen.database_server_installed(str(tmp_path))
 
     def test_a_table_of_another_shape_means_keel_is_asked(
         self, engines, monkeypatch, tmp_path
@@ -494,292 +633,8 @@ class TestTheServerBinaries:
         engines()
         monkeypatch.delattr(sys.modules["keel.inspect.dbengines"], "ENGINES")
 
-        assert keelfirstboot.database_server_installed(str(tmp_path))
+        assert dbscreen.database_server_installed(str(tmp_path))
 
-
-class TestStandalone:
-    def test_a_fresh_node_records_the_role_without_applying(
-        self, keel, spec
-    ):
-        spec({"version": 1, "instance": {"hostname": "wp"}})
-        console = FakeConsole()
-
-        keelfirstboot.standalone(console, str(spec.path), read(spec.path),
-                                 {}, "mariadb")
-
-        assert read(spec.path) == {
-            "version": 1, "instance": {"hostname": "wp"},
-            "database": {"server": {"engine": "mariadb",
-                                    "role": "standalone"}}}
-        assert commands(keel) == ["spec validate"]
-
-    def test_a_record_keel_refuses_leaves_the_file_and_says_so(
-        self, keel, spec
-    ):
-        spec({"version": 1})
-        keel["answers"]["spec validate"] = [(3, "", "bad")]
-        console = FakeConsole()
-
-        keelfirstboot.standalone(console, str(spec.path), read(spec.path),
-                                 {}, "mariadb")
-
-        assert read(spec.path) == {"version": 1}
-        assert boxes(console)[0][1] == keelfirstboot.ROLE_TITLE
-
-    def test_already_standalone_is_left_alone(self, keel, spec, monkeypatch):
-        spec({"version": 1, "database": {"server": SERVER}})
-        monkeypatch.setattr(keelfirstboot, "run_screen",
-                            lambda *args: pytest.fail("no screen"))
-
-        keelfirstboot.standalone(FakeConsole(), str(spec.path),
-                                 read(spec.path), SERVER, "mariadb")
-
-        assert keel["calls"] == []
-
-    def test_a_primary_going_back_runs_the_standalone_screen(
-        self, keel, spec, monkeypatch
-    ):
-        ran = []
-        monkeypatch.setattr(keelfirstboot, "run_screen",
-                            lambda console, role: ran.append(role))
-
-        keelfirstboot.standalone(FakeConsole(), "p", {},
-                                 {**SERVER, "role": "primary"}, "mariadb")
-
-        assert ran == ["standalone"]
-
-
-class TestTheScreensConfconsoleLoads:
-    def test_a_mode_screen_runs_with_this_console(
-        self, tmp_path, monkeypatch
-    ):
-        (tmp_path / "Cloud").mkdir()
-        (tmp_path / "Cloud" / "02Replica.py").write_text(
-            "def run():\n    console.msgbox('t', PLUGIN_PATH)\n")
-        monkeypatch.setattr(keelfirstboot, "MODE_DIR", str(tmp_path))
-        console = FakeConsole()
-
-        keelfirstboot.run_screen(console, "replica")
-
-        assert boxes(console) == [
-            ("msgbox", "t", str(tmp_path / "Cloud" / "02Replica.py"))]
-
-    def test_every_role_names_a_screen_that_exists(self):
-        for relative in keelfirstboot.SCREENS.values():
-            loaded = plugin.Plugin(os.path.join(keelfirstboot.MODE_DIR,
-                                                relative))
-            assert callable(loaded.module.run)
-
-
-class TestPrimaryAndReplica:
-    @pytest.fixture
-    def steps(self, monkeypatch):
-        state = {"overlay": THIS_KEY, "screens": [], "finished": []}
-        monkeypatch.setattr(keelfirstboot, "overlay",
-                            lambda console, path, role: state["overlay"])
-        monkeypatch.setattr(
-            keelfirstboot, "run_screen",
-            lambda console, role: state["screens"].append(role))
-        monkeypatch.setattr(
-            keelfirstboot, "finish",
-            lambda console, path, role: state["finished"].append(role))
-        return state
-
-    def test_a_primary_sets_up_the_overlay_then_its_mode(self, spec, steps):
-        spec({"version": 1})
-        console = FakeConsole()
-
-        keelfirstboot.primary(console, str(spec.path), {}, {}, "mariadb")
-
-        assert "Allow replication from" in boxes(console)[0][2]
-        assert steps["screens"] == ["primary"]
-        assert steps["finished"] == ["primary"]
-
-    def test_a_primary_left_at_the_overlay_is_finished_later(
-        self, spec, steps
-    ):
-        steps["overlay"] = None
-        console = FakeConsole()
-
-        keelfirstboot.primary(console, str(spec.path), {}, {}, "mariadb")
-
-        assert steps["screens"] == []
-        text = boxes(console)[0][2]
-        assert "Overlay network" in text
-        assert "Database mode > Cloud > Primary" in text
-
-    def test_a_replica_waits_for_the_primary_to_accept_it(
-        self, spec, steps
-    ):
-        spec({"version": 1, "network": {"overlay": {"wireguard": {
-            **OVERLAY, "peers": [PEER]}}}})
-        console = FakeConsole(yesno=["ok"])
-
-        keelfirstboot.replica(console, str(spec.path), {}, {}, "mariadb")
-
-        question = console.calls[0][1]
-        assert THIS_KEY in question
-        assert "fd00:6b65:1::2" in question
-        assert "fd00:6b65:1::1" in question
-        # the Primary screen shows the password once, when it generates
-        # it; after that only the file on the primary holds it
-        assert "shown when it was generated" in question
-        assert dbscreen.secret_path({}) in question
-        assert steps["screens"] == ["replica"]
-        assert steps["finished"] == ["replica"]
-
-    def test_a_replica_whose_primary_is_not_ready_finishes_later(
-        self, spec, steps
-    ):
-        spec({"version": 1})
-        console = FakeConsole(yesno=["cancel"])
-
-        keelfirstboot.replica(console, str(spec.path), {}, {}, "mariadb")
-
-        assert steps["screens"] == []
-        text = boxes(console)[0][2]
-        assert "Overlay network" not in text
-        assert "Database mode > Cloud > Replica" in text
-
-    def test_a_replica_left_at_the_overlay_is_finished_later(
-        self, spec, steps
-    ):
-        steps["overlay"] = None
-        console = FakeConsole()
-
-        keelfirstboot.replica(console, str(spec.path), {}, {}, "mariadb")
-
-        assert steps["screens"] == []
-        assert "Overlay network" in boxes(console)[0][2]
-
-    @pytest.mark.parametrize("mode, where", [
-        ("simple", "Advanced > Overlay network: this node's address"),
-        ("cloud_simple", "  Overlay network: this node's address"),
-    ])
-    def test_later_names_where_the_overlay_screen_is_in_this_mode(
-        self, spec, steps, chains, mode, where
-    ):
-        # in a simple installation the overlay is behind Advanced
-        spec({"version": 1, "appliance": {"name": "mariadb"},
-              "installation": {"mode": mode}})
-        steps["overlay"] = None
-        console = FakeConsole()
-
-        keelfirstboot.primary(console, str(spec.path), {}, {}, "mariadb")
-
-        assert where in boxes(console)[0][2]
-
-
-class TestFinish:
-    def test_the_role_in_the_description_is_done(self, spec):
-        spec({"version": 1, "database": {"server": {
-            **SERVER, "role": "replica"}}})
-        console = FakeConsole()
-
-        keelfirstboot.finish(console, str(spec.path), "replica")
-
-        assert "is a replica" in boxes(console)[0][2]
-
-    def test_a_role_the_screen_did_not_write_is_finished_later(self, spec):
-        spec({"version": 1, "database": {"server": SERVER}})
-        console = FakeConsole()
-
-        keelfirstboot.finish(console, str(spec.path), "primary")
-
-        text = boxes(console)[0][2]
-        assert "still standalone" in text
-        assert "Database mode > Cloud > Primary" in text
-
-
-class TestTheOverlayStep:
-    @pytest.fixture
-    def actions(self, monkeypatch, spec):
-        """The overlay screen's own actions, each writing what it would"""
-        ran = []
-
-        def set_address(console, path, document, wireguard, key):
-            # this node's own key, which Add peer refuses as a peer
-            assert key == THIS_KEY.strip()
-            ran.append("address")
-            spec({"version": 1, "network": {"overlay": {
-                "wireguard": OVERLAY}}})
-
-        def add_peer(console, path, document, wireguard, key):
-            assert key == THIS_KEY.strip()
-            ran.append("peer")
-            spec({"version": 1, "network": {"overlay": {"wireguard": {
-                **OVERLAY, "peers": [PEER]}}}})
-
-        monkeypatch.setitem(wgscreen.ACTIONS, wgscreen.ADDRESS, set_address)
-        monkeypatch.setitem(wgscreen.ACTIONS, wgscreen.ADD, add_peer)
-        return ran
-
-    def tags(self, console, index):
-        menus = [call for call in console.calls if call[0] == "menu"]
-        return [tag for tag, _ in menus[index][3]]
-
-    def test_the_key_the_address_then_continue(self, keel, spec, actions):
-        spec({"version": 1})
-        keel["answers"]["network wireguard key"] = [(0, THIS_KEY + "\n")]
-        console = FakeConsole(menus=[
-            ("ok", wgscreen.ADDRESS), ("ok", keelfirstboot.CONTINUE)])
-
-        found = keelfirstboot.overlay(console, str(spec.path), "primary")
-
-        assert found == THIS_KEY
-        assert actions == ["address"]
-        assert "confirm" in boxes(console)[0][2]
-        assert self.tags(console, 0) == [wgscreen.ADDRESS,
-                                         keelfirstboot.LATER]
-        assert self.tags(console, 1) == [
-            keelfirstboot.CONTINUE, wgscreen.ADD, wgscreen.ADDRESS,
-            keelfirstboot.LATER]
-
-    def test_a_replica_continues_only_once_the_primary_is_a_peer(
-        self, keel, spec, actions
-    ):
-        spec({"version": 1, "network": {"overlay": {"wireguard": OVERLAY}}})
-        keel["answers"]["network wireguard key"] = [(0, THIS_KEY)]
-        console = FakeConsole(menus=[
-            ("ok", wgscreen.ADD), ("ok", keelfirstboot.CONTINUE)])
-
-        assert keelfirstboot.overlay(console, str(spec.path),
-                                     "replica") == THIS_KEY
-
-        assert self.tags(console, 0) == [wgscreen.ADD, wgscreen.ADDRESS,
-                                         keelfirstboot.LATER]
-        assert keelfirstboot.CONTINUE in self.tags(console, 1)
-
-    @pytest.mark.parametrize("answer", [("ok", "Later"), ("cancel", "")])
-    def test_later_or_back_leaves_the_step(self, keel, spec, actions,
-                                           answer):
-        spec({"version": 1})
-        keel["answers"]["network wireguard key"] = [(0, THIS_KEY)]
-        console = FakeConsole(menus=[answer])
-
-        assert keelfirstboot.overlay(console, str(spec.path),
-                                     "primary") is None
-
-    def test_no_key_no_overlay(self, keel, spec):
-        spec({"version": 1})
-        keel["answers"]["network wireguard key"] = [(16, "", "no wg")]
-        console = FakeConsole()
-
-        assert keelfirstboot.overlay(console, str(spec.path),
-                                     "primary") is None
-
-    def test_a_description_that_stops_reading_leaves_the_step(
-        self, keel, spec, monkeypatch
-    ):
-        spec({"version": 1})
-        keel["answers"]["network wireguard key"] = [(0, THIS_KEY)]
-        monkeypatch.setattr(keelcli, "load_description",
-                            lambda path: ({}, "broken"))
-        console = FakeConsole()
-
-        assert keelfirstboot.overlay(console, str(spec.path),
-                                     "primary") is None
-        assert boxes(console)[-1][2] == "broken"
 
 
 class TestTheCloudKey:
@@ -1032,6 +887,7 @@ class TestUntilKeelCloudExists:
             "role": lambda *args: ran.append(("role", *args)),
             "cloud": lambda *args: ran.append(("cloud", *args)),
         })
+        monkeypatch.setattr(keelfirstboot, "UNATTENDED", {})
         monkeypatch.setattr(keelfirstboot, "make_console", lambda: "console")
         monkeypatch.setattr(keelfirstboot, "draw_on_terminal", lambda: True)
         return ran

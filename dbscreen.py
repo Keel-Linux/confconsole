@@ -13,6 +13,7 @@ each function is tested with a scripted fake and no dialog opens.
 """
 
 import contextlib
+import glob
 import os
 import shutil
 import tempfile
@@ -21,7 +22,6 @@ from dialog import DialogError
 
 import ifutil
 import keelcli
-import wgcli
 
 NET_DIR = "/sys/class/net"
 PRIVATE_PREFIX = "keel-console-"
@@ -132,6 +132,41 @@ def observed_engine() -> tuple[str, str, str]:
     return engine, result.output, ""
 
 
+def find_engine(server: dict) -> str:
+    """The declared engine, else the one keel inspect finds, quietly
+
+    keel inspect reads the whole machine, which took 2 s on a Web
+    container and 8 s on a quarter of a CPU, a gap with nothing on the
+    screen after the password; with no server binary there is nothing for
+    it to find, so it is not asked. The first boot asks this: of a simple
+    node, and of a cloud node whose chain names no engine (Keel MariaDB
+    adds no overlay that provides one).
+    """
+    declared = str(server.get("engine") or "")
+    if declared:
+        return declared
+    if not database_server_installed():
+        return ""
+    return observed_engine()[0]
+
+
+def database_server_installed(root: str = "/") -> bool:
+    """Whether a server binary keel inspect looks for is under ROOT
+
+    The binaries are keel's own table (keel.inspect.dbengines.ENGINES), so
+    the two never disagree; when it cannot be read, keel is asked.
+    """
+    try:
+        from keel.inspect.dbengines import ENGINES
+    except ImportError:
+        return True
+    return any(
+        glob.glob(os.path.join(root, pattern))
+        for engine in ENGINES
+        for pattern in engine.server_binaries
+    )
+
+
 def defaults(server: dict) -> dict:
     """What the form is prefilled with: what the description says now"""
     replication = server.get("replication") or {}
@@ -150,18 +185,11 @@ def defaults(server: dict) -> dict:
     }
 
 
-def ask(
-    console, title: str, text: str, fields: list,
-    offer_addresses: bool = False,
-) -> dict | None:
+def ask(console, title: str, text: str, fields: list) -> dict | None:
     """Show the form, prefilled; None when it was cancelled or cannot run
 
     `fields` is (label, key, label width, field width), in the order the
-    role needs them. `offer_addresses` puts this node's own addresses in
-    front of a loopback only 'Answer on', which is what a primary needs,
-    and the overlay peers' addresses in an empty 'Allow replication
-    from', or in place of an origin keel refuses, which the form then
-    names above the fields. The answers always carry the secret file the
+    role needs them. The answers always carry the secret file the
     description references, asked or not.
     """
     path = keelcli.spec_path()
@@ -174,16 +202,6 @@ def ask(
     if not engine:
         return None
     filled = defaults(server)
-    if offer_addresses:
-        machine = local_addresses()
-        filled["listen"] = keelcli.primary_listen(filled["listen"], machine)
-        peers = wgcli.peer_addresses(document)
-        refused = keelcli.refused_origins(filled["allowed_from"], engine)
-        filled["allowed_from"] = keelcli.suggested_origin(
-            filled["allowed_from"], peers, refused
-        )
-        if refused:
-            text = keelcli.refused_text(refused, peers) + "\n\n" + text
     if len(text) > LONG_TEXT:
         console.msgbox(title, text, autosize=True)
         text = FORM_PROMPT
@@ -219,7 +237,8 @@ def format_fields(fields: list) -> list:
 
 def apply_mode(
     console, title: str, server: dict, may_destroy: bool = False,
-    password: str = "",
+    password: str = "", document: dict | None = None,
+    before_apply=None, note: str = keelcli.NO_FAILOVER,
 ):
     """Write the role into the description and hand it to keel
 
@@ -235,15 +254,22 @@ def apply_mode(
     are put back as they were and the old description is applied again,
     so No leaves the machine as it was found.
 
+    A pair (decision 0076) gives the whole new `document`, its VIP and
+    overlays with the server, so that one validation holds them together,
+    and `before_apply`, the step between the commit and the apply (`keel
+    vip pair`): it returns False to stop there, with the description
+    committed, which a later run of the screen applies. `note` is what
+    the failover is.
+
     The result of the apply, or None when it stopped before one.
     """
     path = keelcli.spec_path()
-    document, problem = keelcli.load_description(path)
+    loaded, problem = keelcli.load_description(path)
     if problem:
         console.msgbox(title, problem)
         return None
     staged, problem = keelcli.stage_spec(
-        keelcli.with_server(document, server), path
+        keelcli.with_server(document or loaded, server), path
     )
     if problem:
         console.msgbox(title, problem)
@@ -284,6 +310,8 @@ def apply_mode(
             lines.append("The password file was put back as it was.")
         console.msgbox(title, "\n\n".join(lines))
         return None
+    if before_apply is not None and not before_apply(console):
+        return None
     result, declined = converge(console, title, path, may_destroy)
     if result is None:
         return None
@@ -291,7 +319,7 @@ def apply_mode(
         roll_back(console, title, before, result)
         return None
     console.msgbox(
-        title, keelcli.mode_text(server, path, result), autosize=True
+        title, keelcli.mode_text(server, path, result, note), autosize=True
     )
     return result
 
