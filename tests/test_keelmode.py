@@ -302,14 +302,17 @@ class TestTheScreen:
         assert "Turn on the overlay crowdsec?" in console.calls[1][1]
         assert read(spec.path)["overlays"] == {"crowdsec": "disabled"}
 
-    def test_a_menu_that_did_not_answer_writes_nothing(self, spec,
+    def test_a_menu_that_did_not_answer_is_asked_again(self, spec,
                                                        manifests, keel):
+        # BR1, 2026-11-06: ESC left the node with no mode, and the role
+        # step then had nothing to follow
         spec({"version": 1, "appliance": {"name": "core"}})
-        console = FakeConsole(menus=[("esc", "")])
+        console = FakeConsole(menus=[("esc", ""), ("ok", "Simple")])
 
         keelmode.choose(console, str(spec.path), read(spec.path))
 
-        assert keel["calls"] == []
+        assert [one[0] for one in console.calls].count("menu") == 2
+        assert read(spec.path)["installation"] == {"mode": "simple"}
 
     def test_no_facts_is_shown(self, spec, tmp_path, monkeypatch):
         monkeypatch.setattr(keelmode, "ROOT", str(tmp_path))
@@ -323,12 +326,15 @@ class TestTheScreen:
                                                  keel):
         spec({"version": 1, "appliance": {"name": "core"}})
         keel["answers"]["spec validate"] = [(3, "", "bad")]
-        console = FakeConsole(menus=[("ok", "Simple")])
+        console = FakeConsole(menus=[("ok", "Simple"), ("ok", "Simple")])
 
         keelmode.choose(console, str(spec.path), read(spec.path))
 
+        # shown, then asked again
         assert "was NOT changed" in boxes(console)[0][2]
-        assert commands(keel) == ["spec validate --no-secret-files"]
+        assert commands(keel) == ["spec validate --no-secret-files",
+                                  "spec validate --no-secret-files",
+                                  "spec apply --system-only"]
 
     def test_a_keel_that_went_away_before_the_apply_is_said(
         self, spec, manifests, keel
@@ -336,7 +342,7 @@ class TestTheScreen:
         spec({"version": 1, "appliance": {"name": "core"}})
         keel["answers"]["spec apply"] = [
             keelcli.KeelNotInstalled(keelcli.NOT_INSTALLED)]
-        console = FakeConsole(menus=[("ok", "Simple")])
+        console = FakeConsole(menus=[("ok", "Simple"), ("ok", "Simple")])
 
         keelmode.choose(console, str(spec.path), read(spec.path))
 

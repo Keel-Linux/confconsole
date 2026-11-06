@@ -166,7 +166,13 @@ def main(argv: list[str], environ=None) -> int:
     if not draw_on_terminal():
         say(step, NO_TERMINAL[step])
         return 0 if step == CLOUD else DEFERRED
-    STEPS[step](make_console(), path, document)
+    try:
+        STEPS[step](make_console(), path, document)
+    except SystemExit:
+        # confconsole's console quits on ESC and a Yes to "really
+        # quit?": the question is left to keel-init, never dropped
+        say(step, "left with ESC: keel-init asks it again")
+        return 0 if step == CLOUD else DEFERRED
     return 0
 
 
@@ -305,11 +311,12 @@ def choose_role(console, path: str, document: dict) -> None:
     facts, _ = keelmode.facts_of(document)
     declared = keelcli.server_of(document).get("role")
     current = LABEL_OF.get(declared, LABEL_OF[PRIMARY])
-    code, choice = console.menu(ROLE_TITLE, ROLE_TEXT[mode],
-                                role_choices(mode, facts), no_cancel=True,
-                                default_item=current)
-    if code != OK:
-        return
+    code = ""
+    while code != OK:
+        # ESC is not an answer: the question stays until it is answered
+        code, choice = console.menu(ROLE_TITLE, ROLE_TEXT[mode],
+                                    role_choices(mode, facts),
+                                    no_cancel=True, default_item=current)
     role = ROLE_OF[choice]
     meshscreen.ROLES[role](console, meshscreen.node_of(path, document,
                                                        facts, role))

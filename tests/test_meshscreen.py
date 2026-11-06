@@ -427,9 +427,8 @@ class TestThePrimary:
         assert commands(keel) == [
             "mesh create", "spec validate --no-secret-files",
             "mesh invite --json", "spec validate --no-secret-files",
-            "spec apply --system-only", "spec apply --system-only",
-            "vip promote", "vip status", "mesh status",
-            "database status"]
+            "spec apply --system-only", "vip promote", "vip status",
+            "mesh status", "database status"]
         found = read(spec.path)
         assert found["appliance"]["vip"] == VIP
         assert found["overlays"]["vip"] == "enabled"
@@ -437,13 +436,51 @@ class TestThePrimary:
             "engine": "mariadb", "role": "primary",
             "listen": [ME, "::1", "127.0.0.1"]}
         assert titles(console) == [
-            "Make the mesh", "Invite a node", "Waiting for the nodes",
+            "Make the mesh", "Waiting for the nodes",
             "Take the VIP", "Status of this node"]
         # the line, plain and whole, never inside a dialog
         assert LINE in terminal["lines"][0]
         assert terminal["lines"][0][0] == "Invite a node"
         for call in console.calls:
             assert TOKEN not in str(call)
+
+    def test_the_line_is_shown_though_keel_refuses_a_server_before_the_pair(
+        self, spec, keel, terminal
+    ):
+        # BR1, 2026-11-06: an apply before the pair record failed with
+        # "holds no pair record" (exit 16), and the line never reached
+        # tty1. The primary does not apply until the pair exists.
+        import re
+
+        spec(cloud())
+        keel["status"] = [status(), status(), status(others=[OTHER])]
+        keel["answers"]["mesh invite"] = [(0, json.dumps(INVITED))]
+        keel["answers"]["spec apply"] = [
+            (16, "database.server: refused: holds no pair record", "")]
+        console = FakeConsole(pauses=["cancel"],
+                              menus=[("ok", meshscreen.LATER)])
+
+        meshscreen.primary(console, node(spec, "primary"))
+
+        shown = "\n".join(terminal["lines"][0])
+        # what the commissioning driver captures from the raw stream
+        assert re.search(r"keel[12]:[A-Za-z0-9_.~+/=-]+", shown).group(0) \
+            == TOKEN
+        assert re.search(r"VIP:? +(\S+)", shown).group(1) == VIP
+        # one screen, one Enter (the commissioning contract: invite {ret})
+        assert terminal["prompts"] == [meshscreen.PRESS_ENTER]
+        assert "spec apply --system-only" not in commands(keel)[:3]
+
+    def test_an_earlier_invite_still_pending_moves_this_one_a_port_on(self):
+        found = status()
+        found["invites"] = [
+            {"invite_id": "a", "https_port": 51820, "used": False},
+            {"invite_id": "b", "https_port": 51830, "used": True},
+            "odd"]
+
+        assert meshscreen.invite_argv(found) == [
+            "mesh", "invite", "--json", "--port", "51821"]
+        assert meshscreen.invite_argv(status()) == meshscreen.INVITE
 
     def test_cloud_advanced_invites_twice_and_waits_for_etcd(
         self, spec, keel, terminal, record
@@ -466,8 +503,7 @@ class TestThePrimary:
 
         assert commands(keel).count("mesh invite --json") == 2
         assert "mesh create" not in commands(keel)
-        texts = [call[2] for call in console.calls if call[0] == "msgbox"
-                 and call[1] == "Invite a node"]
+        texts = ["\n".join(lines) for lines in terminal["lines"]]
         assert "the replica (node 2)" in texts[0]
         assert "the witness (node 3, Keel Core)" in texts[1]
         assert any("etcd to have 3 voters" in call[2]
@@ -496,7 +532,8 @@ class TestThePrimary:
         meshscreen.primary(console, node(spec, "primary", engine=""))
 
         assert commands(keel) == ["mesh invite --json", "mesh status"]
-        assert "This node holds no VIP" in boxes(console)[0][2]
+        assert "carries no service address" in "\n".join(
+            terminal["lines"][0])
         assert "appliance" not in read(spec.path) or "vip" not in read(
             spec.path)["appliance"]
 
@@ -538,7 +575,7 @@ class TestThePrimary:
         meshscreen.primary(console, node(spec, "primary"))
 
         assert "no endpoint" in boxes(console)[0][2]
-        assert boxes(console)[-1][1] == "Role of this node"
+        assert boxes(console)[-1][1] == "Not finished yet"
         assert "Database mode > Cloud > Primary" in boxes(console)[-1][2]
 
     def test_an_invite_that_prints_no_json_stops(self, spec, keel):
@@ -623,7 +660,7 @@ class TestThePrimary:
 
         meshscreen.primary(console, node(spec, "primary", engine=""))
 
-        assert boxes(console)[-1][1] == "Role of this node"
+        assert boxes(console)[-1][1] == "Not finished yet"
         assert "keel-init" in boxes(console)[-1][2]
 
     def test_etcd_left_for_later(self, spec, keel, terminal):
@@ -635,7 +672,7 @@ class TestThePrimary:
         meshscreen.primary(console, node(spec, "primary", "cloud_advanced",
                                          engine=""))
 
-        assert boxes(console)[-1][1] == "Role of this node"
+        assert boxes(console)[-1][1] == "Not finished yet"
 
     def test_the_line_again_and_the_accept_line(self, spec, keel, terminal):
         spec(cloud(name="core"))
@@ -1071,7 +1108,7 @@ class TestTheWitness:
         meshscreen.witness(console, node(spec, "witness", "cloud_advanced",
                                          engine=""))
 
-        assert boxes(console)[-1][1] == "Role of this node"
+        assert boxes(console)[-1][1] == "Not finished yet"
 
     def test_etcd_left_for_later(self, spec, keel):
         keel["status"] = [status(others=[ME])]
@@ -1081,7 +1118,7 @@ class TestTheWitness:
         meshscreen.witness(console, node(spec, "witness", "cloud_advanced",
                                          engine=""))
 
-        assert boxes(console)[-1][1] == "Role of this node"
+        assert boxes(console)[-1][1] == "Not finished yet"
 
 
 class TestTheStatusScreen:
