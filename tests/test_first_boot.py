@@ -210,6 +210,21 @@ class TestMain:
         assert ran == [str(spec.path)]
         assert steps == []
 
+    @pytest.mark.parametrize("step, status", [("mode", 75), ("role", 75),
+                                              ("cloud", 0)])
+    def test_quitting_with_esc_leaves_the_question_to_keel_init(
+        self, keel, spec, steps, monkeypatch, capsys, step, status
+    ):
+        def quits(*args):
+            raise SystemExit(0)
+
+        monkeypatch.setitem(keelfirstboot.STEPS, step, quits)
+        spec({"version": 1})
+
+        assert keelfirstboot.main([step], {"_TURNKEY_INIT": "1"}) == status
+
+        assert "left with ESC" in capsys.readouterr().err
+
     def test_a_step_with_a_question_goes_on_to_the_terminal(
         self, keel, spec, steps, monkeypatch
     ):
@@ -484,15 +499,15 @@ class TestTheRole:
 
         assert console.menu_kwargs["default_item"] == "Replica"
 
-    def test_a_menu_that_did_not_answer_changes_nothing(
+    def test_a_menu_that_did_not_answer_is_asked_again(
         self, keel, spec, flows, manifests
     ):
         spec(self.cloud("cloud_simple"))
-        console = FakeConsole(menus=[("esc", "")])
+        console = FakeConsole(menus=[("esc", ""), ("ok", "Primary")])
 
         keelfirstboot.choose_role(console, str(spec.path), read(spec.path))
 
-        assert flows == []
+        assert [one[0] for one in flows] == ["primary"]
 
     def test_a_simple_node_has_no_role_screen(self, keel, spec, flows):
         spec({"version": 1, "installation": {"mode": "simple"},

@@ -1,3 +1,28 @@
+confconsole (2.2.3+keel22) trixie; urgency=low
+
+  * The primary shows the invite line. On BR1, 2026-11-06 (WordPress,
+    cloud simple), the primary made the invite and then applied its
+    description; keel refused database.server beside the VIP because no
+    pair record exists yet (exit 16, "holds no pair record"), the flow
+    stopped, and the line never reached tty1. The primary now validates
+    and commits appliance.vip and its server before it shows the line,
+    and applies only at Take the VIP, once the pair record exists.
+  * Invite a node is one plain text screen that one Enter leaves: what
+    the line is for, the line on one line, then "VIP: <address>" and
+    "Expires: <time>". The dialog box before it is gone, as the
+    commissioning contract answers the invite with one Enter.
+  * An invite still pending from an earlier run holds its port, and keel
+    has no invite --cancel yet: the next invite takes the port after it
+    (keel mesh invite --port), so a rerun under keel-init can invite.
+  * The box that says a flow is not finished is titled "Not finished
+    yet", not "Role of this node".
+  * ESC on the Installation mode or the Role of this node menu asks the
+    question again. A Yes to confconsole's "really quit?" exits 75, so
+    the question is left to keel-init and never dropped: a node with no
+    mode had no role either.
+
+ -- Marcos Mendez <mendez.foto@gmail.com>  Fri, 06 Nov 2026 12:00:00 +0000
+
 confconsole (2.2.3+keel21) trixie; urgency=low
 
   * The first boot screens of handbook decision 0076: the installation

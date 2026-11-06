@@ -270,12 +270,16 @@ Make the mesh
 
 Invite a node
   ``keel mesh invite --json``, once per node: the replica, and in cloud
-  advanced the witness after it. A box says what the line is for; then
-  the line itself is printed as plain text, on one line, outside any
-  dialog (a dialog wraps it, and its text is in the process list). The
-  invite carries the VIP of the pair, which the primary writes as its
-  ``appliance.vip``, with its server (role primary, its overlay address
-  added to ``listen``), and applies.
+  advanced the witness after it. One plain text screen, outside any
+  dialog (a dialog wraps the line, and its text is in the process list),
+  says what the line is for and prints it on one line, with ``VIP:`` and
+  ``Expires:`` under it; one Enter leaves it. An earlier invite that is
+  still pending holds its port, so the next one takes the port after it.
+  The invite carries the VIP of the pair, which the primary writes as
+  its ``appliance.vip``, with its server (role primary, its overlay
+  address added to ``listen``). It is validated, not applied: keel
+  refuses ``database.server`` beside a VIP until the pair record exists,
+  so the primary applies at Take the VIP.
 
 Waiting for the nodes
   ``keel mesh status --json`` every 5 s: the member at the invited

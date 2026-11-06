@@ -288,11 +288,14 @@ def choose(console, path: str, document: dict) -> None:
         return
     choices = [(LABEL[mode], ITEM[mode]) for mode in MODES
                if mode in facts.modes]
-    code, choice = console.menu(TITLE, TEXT, choices, no_cancel=True,
-                                default_item=choices[0][0])
-    if code != OK:
-        return
-    save(console, path, document, facts, MODE_OF[choice])
+    while True:
+        # ESC is not an answer: a node with no mode has no role either
+        # (BR1, 2026-11-06), so the question stays until it is answered
+        code, choice = console.menu(TITLE, TEXT, choices, no_cancel=True,
+                                    default_item=choices[0][0])
+        if code == OK and save(console, path, document, facts,
+                               MODE_OF[choice]):
+            return
 
 
 def save(console, path: str, document: dict, facts: Facts,

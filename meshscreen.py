@@ -51,6 +51,7 @@ SYNCTHING = "syncthing"
 ENABLED = keelmode.ENABLED
 
 ROLE_TITLE = "Role of this node"
+LATER_TITLE = "Not finished yet"
 MESH_TITLE = "Make the mesh"
 INVITE_TITLE = "Invite a node"
 JOIN_TITLE = "Join a mesh"
@@ -87,18 +88,18 @@ SHOW_AGAIN = "Show the line"
 TAKE_NOW = "Take it now"
 
 INVITE_TEXT = (
-    "This node invites {who} into its mesh.\n\n"
-    "The next screen shows a line as plain text, on one line. Copy it to"
-    " {who}: paste it into its Join a mesh screen, or run it there as"
-    " root. It can be used once, until {expires}.\n\n"
-    "{vip}"
+    "This node invites {who} into its mesh. Copy the line below to {who}:"
+    " paste it into its Join a mesh screen, or run it there as root. It"
+    " can be used once, until {expires}. {vip}"
 )
 INVITE_VIP = (
-    "The line carries the VIP of the pair, {vip}: this node writes it as"
-    " its appliance.vip, and the replica takes it from the join. Nobody"
-    " types it."
+    "The line carries the service address of the pair, shown below: this"
+    " node writes it as its appliance.vip, and the replica takes it from"
+    " the join. Nobody types it."
 )
-INVITE_NO_VIP = "This node holds no VIP: the line carries none."
+INVITE_NO_VIP = (
+    "This node pairs nothing, so the line carries no service address."
+)
 WHO = {
     (keelmode.CLOUD_SIMPLE, 0): "the replica (node 2)",
     (keelmode.CLOUD_ADVANCED, 0): "the replica (node 2)",
@@ -180,8 +181,8 @@ REPLICA_NOTE = {
     keelmode.CLOUD_ADVANCED: keelcli.ADVANCED_FAILOVER,
 }
 LATER_TEXT = (
-    "Not finished yet. What was applied stays. To go on, run keel-init"
-    " again{where}."
+    "This node is not finished yet. What was applied stays. To go on,"
+    " run keel-init again{where}."
 )
 LATER_WHERE = (
     ", or confconsole, Advanced Menu > Instance > Database mode > Cloud >"
@@ -410,7 +411,7 @@ def wait(console, title: str, intro: str, done, actions=()) -> bool:
 def later(console, node: Node) -> None:
     entry = ENTRY.get(node.role) if node.engine else None
     where = LATER_WHERE.format(entry=entry) if entry else ""
-    console.msgbox(ROLE_TITLE, LATER_TEXT.format(where=where),
+    console.msgbox(LATER_TITLE, LATER_TEXT.format(where=where),
                    autosize=True)
 
 
@@ -491,7 +492,7 @@ def primary(console, node: Node) -> None:
     if node.pairs and not vip_on(console, node):
         return
     while len(members(found)) < node.needed:
-        if not invite(console, node, len(members(found))):
+        if not invite(console, node, len(members(found)), found):
             later(console, node)
             return
         found = status(console, INVITE_TITLE)
@@ -530,10 +531,24 @@ def vip_on(console, node: Node) -> bool:
         **document, "overlays": {**overlays, keelmode.VIP: ENABLED}})
 
 
-def invite(console, node: Node, nth: int) -> bool:
+def invite_argv(found: dict) -> list[str]:
+    """keel mesh invite --json, on the port after the last one a pending
+    invite holds: an invite holds its port until it expires, keel has no
+    invite --cancel yet, and the token of an invite made by an earlier
+    run is not shown again (it is a secret keel keeps). The line names
+    its port, so the joining node needs nothing more."""
+    ports = [one.get("https_port") for one in found.get("invites") or []
+             if isinstance(one, dict) and not one.get("used")
+             and isinstance(one.get("https_port"), int)]
+    if not ports:
+        return list(INVITE)
+    return [*INVITE, "--port", str(max(ports) + 1)]
+
+
+def invite(console, node: Node, nth: int, found: dict) -> bool:
     """One invite: made, the VIP written, the line shown, the join
     waited for. Whether the node joined."""
-    result = run(console, INVITE_TITLE, INVITE)
+    result = run(console, INVITE_TITLE, invite_argv(found))
     if result is None:
         return False
     made = as_json(console, INVITE_TITLE, result)
@@ -558,9 +573,12 @@ def invite(console, node: Node, nth: int) -> bool:
 
 
 def declare_primary(console, node: Node, vip: str) -> bool:
-    """appliance.vip from the invite, and the primary's server, applied
+    """appliance.vip from the invite, and the primary's server, written
     before the line is shown: the replica's `keel vip pair` needs the VIP
-    declared here, and its seed needs this server on the overlay"""
+    declared here. Validated, not applied: keel refuses database.server
+    beside a VIP until the pair record exists (exit 16, "holds no pair
+    record"), so the apply waits for the pair (take_vip). On BR1,
+    2026-11-06, that apply failed here and the line was never shown."""
     document = load(console, INVITE_TITLE, node.path)
     if document is None:
         return False
@@ -573,24 +591,23 @@ def declare_primary(console, node: Node, vip: str) -> bool:
             document, node, found.get("address")))
     if wanted == document:
         return True
-    if not save(console, INVITE_TITLE, node.path, wanted):
-        return False
-    return apply(console, INVITE_TITLE, node.path) is not None
+    return save(console, INVITE_TITLE, node.path, wanted)
 
 
 def show_line(console, made: dict, who: str) -> None:
-    """What the line is for, in a box; then the line itself, plain"""
-    vip = INVITE_VIP.format(vip=made["vip"]) if made.get("vip") else (
-        INVITE_NO_VIP)
-    console.msgbox(INVITE_TITLE, INVITE_TEXT.format(
-        who=who, expires=made.get("expires"), vip=vip), autosize=True)
+    """Invite a node: what the line is for, and the line, one screen
+    that one Enter leaves (the commissioning contract answers it so)"""
     show_plain(made, who)
 
 
 def show_plain(made: dict, who: str) -> bool:
     """The line on one line, never in a dialog: a dialog wraps it, and
     its text is on the command line of the dialog process"""
-    lines = [INVITE_TITLE, "", PLAIN_INVITE.format(who=who), "",
+    vip = INVITE_VIP.format(vip=made["vip"]) if made.get("vip") else (
+        INVITE_NO_VIP)
+    lines = [INVITE_TITLE, "", INVITE_TEXT.format(
+                 who=who, expires=made.get("expires"), vip=vip), "",
+             PLAIN_INVITE.format(who=who), "",
              str(made.get("line") or ""), ""]
     if made.get("vip"):
         lines.append(f"VIP: {made['vip']}")
