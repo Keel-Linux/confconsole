@@ -770,12 +770,32 @@ def pair_replica(console, node: Node, inviter: str) -> bool:
         before_apply=step, note=REPLICA_NOTE[node.mode]) is not None
 
 
+# how many times the Pair step runs `keel vip pair` while the operator
+# answers yes: keel itself retries a timeout of etcd for 2 minutes, and
+# a screen that moved on left the replica unpaired for ever (BR2 9387)
+PAIR_TRIES = 5
+PAIR_AGAIN = "Try keel vip pair again?"
+
+
 def pair(console, inviter: str) -> bool:
     """`keel vip pair` with the primary, then the wait for it to take the
-    VIP, which the replica's seed needs"""
-    result = run(console, PAIR_TITLE, PAIR + [inviter])
-    if result is None:
-        return False
+    VIP, which the replica's seed needs. A refusal is offered again, up
+    to PAIR_TRIES times: an etcd that forms over a poor link, or a
+    primary that is still busy, answers later"""
+    tries = 0
+    while True:
+        tries += 1
+        result = dbscreen.call(console, PAIR_TITLE, PAIR + [inviter])
+        if result is None:
+            return False
+        if result.code == keelcli.OK:
+            break
+        if tries >= PAIR_TRIES:
+            console.msgbox(PAIR_TITLE, command_text(result), autosize=True)
+            return False
+        if console.yesno(f"{command_text(result)}\n\n{PAIR_AGAIN}",
+                         autosize=True) != OK:
+            return False
     console.msgbox(PAIR_TITLE, command_text(result), autosize=True)
     return wait(console, PAIR_TITLE, WAIT_HOLDER, holder_known)
 

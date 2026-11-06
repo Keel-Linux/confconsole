@@ -1,3 +1,14 @@
+confconsole (2.2.3+keel23) trixie; urgency=low
+
+  * The Pair step of the replica offers keel vip pair again when keel
+    refuses it, up to 5 times. On BR2 9387, 2026-11-06 (LNMP, cloud
+    advanced), etcd was still forming and did not answer in time. keel
+    vip pair refused with exit code 24, the screen moved on, the replica
+    never paired, and the primary waited for ever. keel 0.23.89 also
+    tries a timeout of etcd again for 2 minutes itself.
+
+ -- Marcos Mendez <mendez.foto@gmail.com>  Fri, 06 Nov 2026 21:00:00 +0000
+
 confconsole (2.2.3+keel22) trixie; urgency=low
 
   * The primary shows the invite line. On BR1, 2026-11-06 (WordPress,

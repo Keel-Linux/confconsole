@@ -917,6 +917,65 @@ class TestTheReplica:
 
         assert keel["calls"][-4][-1] == "--destroy-local-database"
 
+    ETCD_LATE = (24, "", "refused: etcd did not answer (etcdctl get: no"
+                 " answer within 2.5 s): with etcd, a pair is signed only"
+                 " once its VIP is reserved")
+
+    def test_a_refused_pair_is_offered_again_and_goes_on(self, spec, keel):
+        """lnmp cloud_advanced, BR2 9387, keel 0.23.87: etcd timed out,
+        keel vip pair refused, and the screen moved on: the replica never
+        paired and the primary waited for ever. The screen offers the
+        pair again"""
+        spec(cloud())
+        keel["status"] = [status(others=[OTHER], vip={"proposed": VIP}),
+                          status(others=[OTHER], vip={"proposed": VIP,
+                                                      "holder": OTHER})]
+        keel["answers"]["vip pair"] = [self.ETCD_LATE, (0, "", "")]
+        console = FakeConsole(yesno=["ok", "ok"])
+
+        meshscreen.replica(console, node(spec, "replica"))
+
+        assert commands(keel).count(f"vip pair {OTHER}") == 2
+        assert "spec apply --system-only" in commands(keel)
+        asked = [call[1] for call in console.calls if call[0] == "yesno"]
+        assert "etcd did not answer" in asked[1]
+        assert meshscreen.PAIR_AGAIN in asked[1]
+
+    def test_a_refused_pair_the_operator_does_not_retry_stops(self, spec,
+                                                             keel):
+        spec(cloud())
+        keel["status"] = [status(others=[OTHER], vip={"proposed": VIP})]
+        keel["answers"]["vip pair"] = [self.ETCD_LATE]
+        console = FakeConsole(yesno=["ok", "cancel"])
+
+        meshscreen.replica(console, node(spec, "replica"))
+
+        assert commands(keel).count(f"vip pair {OTHER}") == 1
+        assert "spec apply --system-only" not in commands(keel)
+
+    def test_a_pair_that_stays_refused_is_tried_a_bounded_number_of_times(
+            self, spec, keel):
+        spec(cloud())
+        keel["status"] = [status(others=[OTHER], vip={"proposed": VIP})]
+        keel["answers"]["vip pair"] = [self.ETCD_LATE] * 20
+        console = FakeConsole(yesno=["ok"] * 20)
+
+        meshscreen.replica(console, node(spec, "replica"))
+
+        assert commands(keel).count(f"vip pair {OTHER}") == \
+            meshscreen.PAIR_TRIES
+        assert "spec apply --system-only" not in commands(keel)
+
+    def test_a_pair_with_no_keel_stops(self, spec, keel):
+        spec(cloud())
+        keel["status"] = [status(others=[OTHER], vip={"proposed": VIP})]
+        keel["answers"]["vip pair"] = [keelcli.KeelNotInstalled("no keel")]
+        console = FakeConsole(yesno=["ok"])
+
+        meshscreen.replica(console, node(spec, "replica"))
+
+        assert "spec apply --system-only" not in commands(keel)
+
     def test_cloud_advanced_pairs_once_etcd_has_three_voters(self, spec,
                                                              keel):
         spec(cloud("cloud_advanced"))
@@ -1022,11 +1081,13 @@ class TestTheReplica:
         spec(cloud())
         keel["status"] = [status(others=[OTHER], vip={"proposed": VIP})]
         keel["answers"]["vip pair"] = [(24, "", "another pair has it")]
-        console = FakeConsole(yesno=["ok"])
+        # the refusal is offered again; the operator says no
+        console = FakeConsole(yesno=["ok", "cancel"])
 
         meshscreen.replica(console, node(spec, "replica"))
 
-        assert "another pair has it" in boxes(console)[0][2]
+        asked = [call[1] for call in console.calls if call[0] == "yesno"]
+        assert "another pair has it" in asked[1]
         assert "spec apply --system-only" not in commands(keel)
         assert read(spec.path)["appliance"]["vip"] == VIP
 
