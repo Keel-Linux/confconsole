@@ -1,3 +1,14 @@
+confconsole (2.2.3+keel24) trixie; urgency=low
+
+  * Each box of confconsole and keel-init drops the keys typed before it
+    is drawn (tcflush of the terminal's input). On BR2 9381, 2026-11-07
+    (WordPress, cloud advanced), an Enter typed while WordPress installed
+    waited in the terminal. The Mode menu of the replica took it as soon
+    as it was drawn and chose Simple, so the node never paired. An
+    operator who presses Enter during a long step got the same.
+
+ -- Marcos Mendez <mendez.foto@gmail.com>  Sat, 07 Nov 2026 12:00:00 +0000
+
 confconsole (2.2.3+keel23) trixie; urgency=low
 
   * The Pair step of the replica offers keel vip pair again when keel

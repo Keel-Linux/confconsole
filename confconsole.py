@@ -19,6 +19,7 @@ import getopt
 import ipaddress
 import re
 import shlex
+import termios
 from string import Template
 from io import StringIO
 import traceback
@@ -195,6 +196,19 @@ def describe_interface(
 WrapperReturn = str | tuple[str, str]
 
 
+def drop_typeahead() -> None:
+    """Drop the keys typed before a box is drawn, so that it reads only
+    the keys typed while it is on the screen. An Enter typed while
+    WordPress installed waited in the terminal, and the Mode menu of
+    keel-init took it at once and chose Simple (cloud advanced replica,
+    BR2, 2026-11-07). No terminal, or one that refuses: nothing to drop."""
+    try:
+        if os.isatty(0):
+            termios.tcflush(0, termios.TCIFLUSH)
+    except (OSError, termios.error):
+        pass
+
+
 class Console:
     def __init__(
         self,
@@ -243,6 +257,7 @@ class Console:
         ret: WrapperReturn = ""
 
         while 1:
+            drop_typeahead()
             try:
                 ret = method(f"\n{text}", *args, **kws)
             except DialogError as e:
