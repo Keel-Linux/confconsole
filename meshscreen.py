@@ -33,6 +33,7 @@ scripted fake.
 """
 
 import json
+import logging
 import os
 import re
 import sys
@@ -42,6 +43,8 @@ import dbscreen
 import keelcli
 import keelmenu
 import keelmode
+
+log = logging.getLogger("meshscreen")
 
 OK = "ok"
 PRIMARY = keelcli.PRIMARY
@@ -190,6 +193,21 @@ LATER_WHERE = (
 )
 ENTRY = {PRIMARY: "Primary", REPLICA: "Replica"}
 TIMED_OUT = "Nothing changed for an hour: the invite has expired."
+NO_ENGINE_TITLE = "No database to pair"
+NO_ENGINE = (
+    "This node runs a database server that keel pairs ({servers}), but no"
+    " engine was found to pair. The description names none, and keel"
+    " inspect could not choose one. Without an engine, the pair holds the"
+    " files only, and each node keeps its own database. Nothing was"
+    " changed.\n\n"
+    "Write database.server.engine in {path}, then run keel-init again."
+    " keel inspect >/dev/null shows why it chose no engine, on the line"
+    " database.server."
+)
+NO_ENGINE_LOG = (
+    "role {role}: not a pair of files only: {servers} installed and no"
+    " engine to pair; database.server.engine is not in {path}"
+)
 SIMPLE_NODE = (
     "This node is not in a cloud mode, so it has no mesh and no pair. The"
     " mode is chosen once, at the first boot (decision 0028)."
@@ -205,6 +223,9 @@ class Node:
     role: str
     engine: str = ""
     files: bool = False
+    # why the flow must not run: a server keel pairs is installed and no
+    # engine was found, so the pair would be files only (keel#304)
+    refused: str = ""
 
     @property
     def pairs(self) -> bool:
@@ -238,7 +259,29 @@ def node_of(path: str, document: dict, facts, role: str) -> Node:
         engine = found if keelmenu.replicates(found) else ""
     columns = (facts.columns or {}) if facts else {}
     files = not engine and columns.get(SYNCTHING, {}).get(mode) == ENABLED
-    return Node(path, mode, role, engine, files)
+    return Node(path, mode, role, engine, files,
+                "" if engine else refusal(path, role))
+
+
+def refusal(path: str, role: str) -> str:
+    """Why a node with no engine must not pair, or "": a server keel
+    pairs is installed, so its database would diverge in silence"""
+    servers = dbscreen.servers_installed(keelmenu.REPLICATING_ENGINES)
+    if not servers:
+        return ""
+    names = ", ".join(servers)
+    log.warning(NO_ENGINE_LOG.format(role=role, servers=names, path=path))
+    return NO_ENGINE.format(servers=names, path=path)
+
+
+def start(console, node: Node) -> None:
+    """The flow of the node's role, unless the node is refused: then the
+    screen says why and nothing is changed"""
+    if node.refused:
+        console.msgbox(NO_ENGINE_TITLE, node.refused, autosize=True)
+        later(console, node)
+        return
+    ROLES[node.role](console, node)
 
 
 # --- the terminal, outside dialog ------------------------------------------
@@ -824,5 +867,5 @@ def from_menu(console, role: str) -> None:
         console.msgbox(ROLE_TITLE, SIMPLE_NODE, autosize=True)
         return
     facts, _ = keelmode.facts_of(document)
-    ROLES[role](console, node_of(path, document, facts, role))
+    start(console, node_of(path, document, facts, role))
 

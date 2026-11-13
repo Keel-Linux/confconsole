@@ -1,3 +1,21 @@
+confconsole (2.2.3+keel25) trixie; urgency=low
+
+  * The role screen of keel-init, and Database mode > Cloud > Primary or
+    Replica, no longer make a pair of files only on a node that runs a
+    database server that keel pairs (keel#304). On a Nextcloud
+    cloud_simple pair, 2026-11-13, keel inspect found no engine, because
+    redis-server runs beside MariaDB. The screen paired the files and the
+    VIP, each node kept its own database, and nothing said so. Now, when
+    a node asks for the Primary or Replica role, finds no engine to pair,
+    and has a MariaDB or PostgreSQL server binary, the box "No database
+    to pair" names the server and says what to write. Nothing is
+    changed, and the journal gets the same line. keel 0.23.97 chooses
+    MariaDB on such a node, so the box is for the cases keel cannot
+    decide. A node without such a server (Keel Web, Keel Core, Redis
+    alone) is as before.
+
+ -- Marcos Mendez <mendez.foto@gmail.com>  Fri, 13 Nov 2026 12:00:00 +0000
+
 confconsole (2.2.3+keel24) trixie; urgency=low
 
   * Each box of confconsole and keel-init drops the keys typed before it

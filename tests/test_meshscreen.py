@@ -9,6 +9,7 @@ the console is the scripted fake of conftest.
 """
 
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,7 @@ import yaml
 
 import dbscreen
 import keelcli
+import keelmenu
 import keelmode
 import meshscreen
 from conftest import DB_COLUMNS, FakeConsole, make_result
@@ -57,6 +59,7 @@ def no_server_binary(monkeypatch):
     """No database server on the machine, unless a test says otherwise:
     keel inspect is never asked"""
     monkeypatch.setattr(dbscreen, "database_server_installed", lambda: False)
+    monkeypatch.setattr(dbscreen, "servers_installed", lambda names: ())
 
 
 @pytest.fixture
@@ -235,6 +238,52 @@ class TestWhatPairs:
             "mariadb", DB_COLUMNS, frozenset({"mariadb"})), "witness")
 
         assert not found.pairs
+
+    def test_a_server_keel_pairs_with_no_engine_found_is_refused(
+        self, monkeypatch
+    ):
+        """keel#304: Nextcloud runs redis-server beside MariaDB, keel
+        inspect found no engine, and the pair was files only"""
+        monkeypatch.setattr(dbscreen, "find_engine", lambda server: "")
+        monkeypatch.setattr(dbscreen, "servers_installed",
+                            lambda names: ("mariadb",))
+
+        found = meshscreen.node_of("p", {"installation": {
+            "mode": "cloud_simple"}}, self.facts(
+            "nextcloud", {"syncthing": {"cloud_simple": "enabled"}}),
+            "primary")
+
+        assert found.engine == ""
+        assert "mariadb" in found.refused
+        assert "its own database" in found.refused
+
+    def test_the_servers_asked_for_are_the_engines_keel_pairs(
+        self, monkeypatch
+    ):
+        asked = []
+        monkeypatch.setattr(dbscreen, "servers_installed",
+                            lambda names: asked.append(names) or ())
+
+        found = meshscreen.node_of("p", {}, self.facts("web", {}),
+                                   "replica")
+
+        assert asked == [keelmenu.REPLICATING_ENGINES]
+        assert found.refused == ""
+
+    def test_a_node_with_an_engine_is_not_refused(self, monkeypatch):
+        monkeypatch.setattr(dbscreen, "servers_installed",
+                            lambda names: ("mariadb",))
+
+        found = meshscreen.node_of("p", {}, self.facts(
+            "mariadb", DB_COLUMNS, frozenset({"mariadb"})), "primary")
+
+        assert (found.engine, found.refused) == ("mariadb", "")
+
+    def test_a_witness_is_never_refused(self, monkeypatch):
+        monkeypatch.setattr(dbscreen, "servers_installed",
+                            lambda names: ("mariadb",))
+
+        assert meshscreen.node_of("p", {}, None, "witness").refused == ""
 
     def test_cloud_advanced_waits_for_two_members(self):
         assert meshscreen.Node("p", "cloud_advanced", "primary").needed == 2
@@ -1215,6 +1264,32 @@ class TestFromTheMenu:
 
         assert ran == [meshscreen.Node(str(spec.path), "cloud_simple",
                                        "replica", "mariadb")]
+
+    def test_a_node_that_would_pair_files_only_is_stopped(
+        self, spec, keel, manifests, monkeypatch, caplog
+    ):
+        """keel#304: the operator sees why, the journal gets the same
+        text, and no flow runs, so no pair of files only is made"""
+        spec(cloud(name="nextcloud"))
+        monkeypatch.setattr(dbscreen, "find_engine", lambda server: "")
+        monkeypatch.setattr(dbscreen, "servers_installed",
+                            lambda names: ("mariadb",))
+        ran = []
+        monkeypatch.setitem(meshscreen.ROLES, "primary",
+                            lambda console, found: ran.append(found))
+        console = FakeConsole()
+
+        with caplog.at_level(logging.WARNING, logger="meshscreen"):
+            meshscreen.from_menu(console, "primary")
+
+        assert ran == []
+        shown = boxes(console)
+        assert shown[0][1] == meshscreen.NO_ENGINE_TITLE
+        assert "mariadb" in shown[0][2]
+        assert "Nothing was changed" in shown[0][2]
+        assert shown[1][1] == meshscreen.LATER_TITLE
+        assert "pair of files only" in caplog.text
+        assert keel["calls"] == []
 
     def test_a_description_that_does_not_read_is_shown(self, spec, keel):
         spec.path.write_text("version: [1")

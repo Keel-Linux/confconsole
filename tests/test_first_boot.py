@@ -437,6 +437,7 @@ class TestTheRole:
         ran = []
         monkeypatch.setattr(dbscreen, "database_server_installed",
                             lambda: False)
+        monkeypatch.setattr(dbscreen, "servers_installed", lambda names: ())
         for name in ("primary", "replica", "witness"):
             monkeypatch.setitem(
                 meshscreen.ROLES, name,
@@ -508,6 +509,21 @@ class TestTheRole:
         keelfirstboot.choose_role(console, str(spec.path), read(spec.path))
 
         assert [one[0] for one in flows] == ["primary"]
+
+    def test_a_node_that_would_pair_files_only_runs_no_flow(
+        self, keel, spec, flows, manifests, monkeypatch
+    ):
+        """keel#304: a MariaDB server and no engine found"""
+        spec(self.cloud("cloud_simple", name="nextcloud"))
+        monkeypatch.setattr(dbscreen, "servers_installed",
+                            lambda names: ("mariadb",))
+        console = FakeConsole(menus=[("ok", "Primary")])
+
+        keelfirstboot.choose_role(console, str(spec.path), read(spec.path))
+
+        assert flows == []
+        assert meshscreen.NO_ENGINE_TITLE in [
+            call[1] for call in console.calls if call[0] == "msgbox"]
 
     def test_a_simple_node_has_no_role_screen(self, keel, spec, flows):
         spec({"version": 1, "installation": {"mode": "simple"},
@@ -641,6 +657,39 @@ class TestTheServerBinaries:
         monkeypatch.setitem(sys.modules, "keel.inspect.dbengines", None)
 
         assert dbscreen.database_server_installed(str(tmp_path))
+
+    def test_the_servers_installed_are_named_by_engine(
+        self, monkeypatch, tmp_path
+    ):
+        def engine(name, *patterns):
+            return type("Engine", (), {"name": name,
+                                       "server_binaries": patterns})
+        module = type(sys)("keel.inspect.dbengines")
+        module.ENGINES = (
+            engine("mariadb", "usr/sbin/mariadbd", "usr/sbin/mysqld"),
+            engine("postgresql", "usr/lib/postgresql/*/bin/postgres"),
+            engine("redis", "usr/bin/redis-server"),
+        )
+        for name in ("keel", "keel.inspect"):
+            monkeypatch.setitem(sys.modules, name, type(sys)(name))
+        monkeypatch.setitem(sys.modules, "keel.inspect.dbengines", module)
+        for binary in ("usr/sbin/mariadbd", "usr/bin/redis-server"):
+            (tmp_path / binary).parent.mkdir(parents=True, exist_ok=True)
+            (tmp_path / binary).touch()
+
+        assert dbscreen.servers_installed(
+            frozenset({"mariadb", "postgresql"}), str(tmp_path)) == (
+            "mariadb",)
+        assert dbscreen.servers_installed(
+            frozenset({"postgresql"}), str(tmp_path)) == ()
+
+    def test_without_keel_s_table_no_server_is_named(
+        self, monkeypatch, tmp_path
+    ):
+        monkeypatch.setitem(sys.modules, "keel.inspect.dbengines", None)
+
+        assert dbscreen.servers_installed(
+            frozenset({"mariadb"}), str(tmp_path)) == ()
 
     def test_a_table_of_another_shape_means_keel_is_asked(
         self, engines, monkeypatch, tmp_path
