@@ -318,8 +318,8 @@ def choose_role(console, path: str, document: dict) -> None:
                                     role_choices(mode, facts),
                                     no_cancel=True, default_item=current)
     role = ROLE_OF[choice]
-    meshscreen.ROLES[role](console, meshscreen.node_of(path, document,
-                                                       facts, role))
+    meshscreen.start(console, meshscreen.node_of(path, document, facts,
+                                                 role))
 
 
 # --- the Keel Cloud key --------------------------------------------------

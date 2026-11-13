@@ -167,6 +167,24 @@ def database_server_installed(root: str = "/") -> bool:
     )
 
 
+def servers_installed(names: frozenset, root: str = "/") -> tuple:
+    """The engines among NAMES whose server binary is under ROOT, in the
+    order of keel's own table (keel.inspect.dbengines.ENGINES)
+
+    Nothing when the table cannot be read: then no server can be named.
+    """
+    try:
+        from keel.inspect.dbengines import ENGINES
+    except ImportError:
+        return ()
+    return tuple(
+        engine.name for engine in ENGINES
+        if engine.name in names and any(
+            glob.glob(os.path.join(root, pattern))
+            for pattern in engine.server_binaries)
+    )
+
+
 def defaults(server: dict) -> dict:
     """What the form is prefilled with: what the description says now"""
     replication = server.get("replication") or {}
