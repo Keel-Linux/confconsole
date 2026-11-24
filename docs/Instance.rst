@@ -253,7 +253,11 @@ Installation mode
   manifest allows (``modes:``, ``keel.manifest.facts.gather``). It writes
   ``appliance.name`` (the declared one, else the installed appliance no
   other is built on), ``installation.mode`` and every overlay of the
-  chain at that mode's column, then applies. Skipped when the
+  chain at that mode's column, then applies. The first choice also
+  writes ``firewall.state: enforce`` (decision 0097, section 5), unless
+  the description already says a state; ``firewall.allow`` stays. The
+  move to Cloud advanced writes no state: keel's rule B decides on a
+  node in the field. Skipped when the
   description declares ``installation.mode``. Under keel-init a node
   with a mode sees it, and a Cloud simple node may move to Cloud advanced
   (decision 0057; then ``keel mesh etcd form`` on the node that made the

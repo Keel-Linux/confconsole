@@ -1,3 +1,18 @@
+confconsole (2.2.3+keel26) trixie; urgency=high
+
+  * Decision 0097, section 5: the first choice of the installation mode
+    writes firewall.state: enforce into the instance description, so a
+    new node is closed by keel's firewall in each mode. A state the
+    description already says stays, and so does firewall.allow;
+    firewall.enabled: false (which records no choice) goes, and
+    firewall.enabled: true stays, because keel reads it as enforce. The
+    move from Cloud simple to Cloud advanced under keel-init writes no
+    state: that node is in the field, and keel's rule B decides there.
+  * Depends on keel (>= 0.23.100): an older keel refuses the firewall
+    section outside cloud advanced, and does not know firewall.state.
+
+ -- Marcos Mendez <mendez.foto@gmail.com>  Tue, 24 Nov 2026 12:00:00 +0000
+
 confconsole (2.2.3+keel25) trixie; urgency=low
 
   * The role screen of keel-init, and Database mode > Cloud > Primary or
