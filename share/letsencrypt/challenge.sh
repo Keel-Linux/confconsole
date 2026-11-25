@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Who answers ACME's http-01 challenge on port 80, for dehydrated-wrapper.
 #
 # Installed as /usr/share/confconsole/letsencrypt/challenge.sh. Sourced by
