@@ -79,6 +79,12 @@ COMMAND_MESSAGES = {
         APPLY_FAILED: "not done: the reason is above",
         MESH_REFUSED: "refused: the reason is above",
     },
+    # keel access, decision 0098: list, invite, invites, remove, cancel
+    "access": {
+        USAGE: "refused: the reason is above",
+        APPLY_FAILED: "not done: the reason is above",
+        MESH_REFUSED: "refused: the reason is above",
+    },
     "confirm": {
         OK: "confirmed: the network change stays",
         # keel refuses for several reasons, nothing waiting among them

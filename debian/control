@@ -20,7 +20,7 @@ Depends:
  libsasl2-modules,
  python3-requests,
  python3-yaml,
- keel (>= 0.23.100),
+ keel (>= 0.23.105),
 Recommends:
  authbind,
  dehydrated,

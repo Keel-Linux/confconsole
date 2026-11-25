@@ -10,6 +10,17 @@ previous tip a2d9f70 (2025-10-02) was 50 commits behind and lacked the
 IPv6-aware rewrite of `ifutil.py` (upstream pull request #109), which is
 the file the static IPv6 work starts from.
 
+## Branch feat/administrator-access: 100 percent kept (2026-11-25)
+
+Two new modules join the measured set, both at 100 percent of lines and
+branches: `accesscli.py` (what keel access prints, read, and the text of
+each screen) and `accessscreen.py` (the dialog flow of Admin access,
+decision 0098). `tests/test_access_screen.py` tests both with keel and
+the terminal replaced; the new entry
+`plugins.d/Instance/Admin_access.py` is in the menu tests. The package
+lists of both workflows name the two modules. The shell gate is
+unchanged.
+
 ## Branch fix/acme-webroot-nginx: shell 100 percent (2026-11-25)
 
 Three files under `share/letsencrypt/` join the shell gate, each at 100

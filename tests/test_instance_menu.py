@@ -23,7 +23,7 @@ INSTANCE_DIR = (
     Path(__file__).resolve().parent.parent / "plugins.d" / "Instance"
 )
 ENTRIES = ["View_spec.py", "Apply_spec.py", "Show_drift.py", "Export_spec.py",
-           "Overlay_network.py", "Keel_Cloud.py"]
+           "Overlay_network.py", "Keel_Cloud.py", "Admin_access.py"]
 SPEC = "/etc/keel/instance.yaml"
 
 
@@ -295,7 +295,10 @@ class TestExportSpec:
 
 # --- what the Instance menu offers, from the appliance manifest (0041)
 
-PLAIN = ["View spec", "Apply spec", "Show drift", "Export spec"]
+# Admin access is in every mode: every node is reached through
+# its access network (decision 0098), not only a node of a set
+PLAIN = ["View spec", "Apply spec", "Show drift", "Export spec",
+         "Admin access"]
 
 
 @pytest.fixture
@@ -453,6 +456,8 @@ class TestNothingIsCutAt80Columns:
         assert keelfit.fit_choices(items, width) == items, name
 
     def test_the_overlay_screens_menus(self):
+        import accesscli
+        import accessscreen
         import keelfirstboot
         import keelmode
         import meshscreen
@@ -478,6 +483,15 @@ class TestNothingIsCutAt80Columns:
              (meshscreen.LATER, "finish this later")],
             keelfirstboot.KEY_CHOICES,
             [keelmenu.ADVANCED_ITEM],
+            accessscreen.choices(accesscli.Network(
+                "keel-access", "fd00::1/64", "51822",
+                (accesscli.Computer("a" * 32, "fd00::2", "2026-11-25", ""),))),
+            accesscli.computer_choices(accesscli.Network(
+                "keel-access", "fd00::1/64", "51822",
+                (accesscli.Computer("a" * 32, "fd00::2", "2026-11-25", ""),))),
+            accesscli.enrolment_choices([accesscli.Enrolment(
+                "0a1b2c3d4e5f6a7b", "a" * 32, "fd00::2/128",
+                "2026-11-25T18:15:00Z", "50123")]),
         ]
         for items in menus:
             width = keelfit.menu_width(items, 65, self.COLS)
