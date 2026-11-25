@@ -216,6 +216,52 @@ class TestTheColumn:
         assert document["installation"] == {"other": 1}
 
 
+class TestTheFirewall:
+    """Decision 0097, section 5: the first choice of the mode writes
+    `firewall.state: enforce`; a word of the operator stays"""
+
+    def test_no_section_gets_enforce(self):
+        assert keelmode.closed({"version": 1}) == {
+            "version": 1, "firewall": {"state": "enforce"}}
+
+    def test_a_section_that_is_not_a_mapping_gets_enforce(self):
+        assert keelmode.closed({"firewall": None}) == {
+            "firewall": {"state": "enforce"}}
+
+    @pytest.mark.parametrize("state", ["enforce", "report", "off"])
+    def test_a_declared_state_stays(self, state):
+        document = {"firewall": {"state": state}}
+
+        assert keelmode.closed(document) == document
+
+    def test_enabled_true_stays_keel_reads_it_as_enforce(self):
+        # keel refuses enabled together with state
+        document = {"firewall": {"enabled": True}}
+
+        assert keelmode.closed(document) == document
+
+    def test_enabled_false_records_no_choice_and_goes(self):
+        # what keel inspect of 0.23.97 wrote where it found no file
+        document = {"firewall": {"enabled": False,
+                                 "allow": [{"port": 8080,
+                                            "protocol": "tcp"}]}}
+
+        found = keelmode.closed(document)
+
+        assert found["firewall"] == {
+            "allow": [{"port": 8080, "protocol": "tcp"}],
+            "state": "enforce"}
+        assert document["firewall"]["enabled"] is False
+
+    def test_the_allow_list_stays(self):
+        allow = [{"port": 5432, "protocol": "tcp",
+                  "from": ["2001:db8::/32"]}]
+
+        found = keelmode.closed({"firewall": {"allow": allow}})
+
+        assert found["firewall"] == {"allow": allow, "state": "enforce"}
+
+
 class TestUnattended:
     def test_a_declared_mode_is_for_the_screen(self, spec):
         assert keelmode.unattended(str(spec.path), {
@@ -242,6 +288,7 @@ class TestUnattended:
         assert keelmode.unattended(str(spec.path), read(spec.path)) == 0
 
         assert read(spec.path)["installation"] == {"mode": "simple"}
+        assert read(spec.path)["firewall"] == {"state": "enforce"}
         assert commands(keel) == ["spec validate --no-secret-files",
                                   "spec apply --system-only"]
         assert "simple, the one mode redis allows: keel apply: exit 0" in (
@@ -286,6 +333,7 @@ class TestTheScreen:
         assert found["installation"] == {"mode": "cloud_simple"}
         assert found["overlays"]["wireguard"] == "enabled"
         assert found["overlays"]["mariadb"] == "enabled"
+        assert found["firewall"] == {"state": "enforce"}
         assert commands(keel)[-1] == "spec apply --system-only"
         (_, title, said), = boxes(console)
         assert title == "Installation mode"
@@ -408,6 +456,19 @@ class TestKeelInitOnANodeWithAMode:
         assert found["overlays"]["vip"] == "enabled"
         said = boxes(console)[-1][2]
         assert "keel mesh etcd form --dry-run" in said
+
+    def test_the_move_writes_no_firewall_state(self, spec, manifests, keel):
+        # a node in the field: rule B of keel decides, not this screen
+        # (decision 0097, section 5; only new nodes get enforce)
+        spec({"version": 1, "appliance": {"name": "core"},
+              "installation": {"mode": "cloud_simple"}})
+        console = FakeConsole(menus=[("ok", "Cloud advanced")])
+
+        keelmode.choose(console, str(spec.path), read(spec.path))
+
+        found = read(spec.path)
+        assert found["installation"] == {"mode": "cloud_advanced"}
+        assert "firewall" not in found
 
     def test_a_move_keel_refuses_says_nothing_of_the_next_steps(
         self, spec, manifests, keel
