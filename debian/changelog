@@ -1,3 +1,22 @@
+confconsole (2.2.3+keel28) trixie; urgency=medium
+
+  * New Instance menu entry, Admin access (handbook decision 0098): the
+    computers of the administrators on the node's access network,
+    keel-access. It is in every installation mode. The screen only calls
+    keel and writes no state itself:
+    - Add a computer: asks a name, runs keel access invite, and shows the
+      one command to paste on that computer (Linux or macOS), with its
+      expiry from keel access invites. The command works one time. It
+      holds a secret, so it goes to the plain terminal and never into a
+      dialog, whose text is on the command line of the dialog process.
+    - Computers: keel access list --json.
+    - Remove a computer: keel access remove, after a question.
+    - Waiting enrolments: keel access invites, and keel access cancel
+      after a question.
+  * keel (>= 0.23.105), the first keel with keel access invite.
+
+ -- Marcos Mendez <mendez.foto@gmail.com>  Wed, 25 Nov 2026 19:00:00 +0000
+
 confconsole (2.2.3+keel27) trixie; urgency=medium
 
   * dehydrated-wrapper no longer stops nginx for a certificate
