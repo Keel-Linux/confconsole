@@ -10,6 +10,17 @@ previous tip a2d9f70 (2025-10-02) was 50 commits behind and lacked the
 IPv6-aware rewrite of `ifutil.py` (upstream pull request #109), which is
 the file the static IPv6 work starts from.
 
+## Branch fix/acme-webroot-nginx: shell 100 percent (2026-11-25)
+
+Three files under `share/letsencrypt/` join the shell gate, each at 100
+percent of lines: `challenge.sh` (new: who answers the http-01 challenge,
+the init fence, the reload of nginx; 18 of 18), the http-01 hook (35 of
+35) and the renewal cron job (23 of 23). `tests/test-letsencrypt.bats`
+(23 tests) runs them with systemctl, nginx, add-water-client and the
+wrapper replaced. `plugins.d/Lets_Encrypt/dehydrated-wrapper` is not
+measured: it needs root and writes to `/etc`. Shell total 100 (96 of 96
+lines). The Python gate is unchanged.
+
 ## Branch feat/decision-0076-first-boot-screens: 100 percent kept (2026-11-05)
 
 Two new modules join the measured set, both at 100 percent of lines and

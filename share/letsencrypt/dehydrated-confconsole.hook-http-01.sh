@@ -5,6 +5,11 @@
 # For more info, please see https://www.turnkeylinux.org/docs/letsencypt
 
 # HTTP-01 Hook Script
+#
+# CHALLENGE_SERVER, set by dehydrated-wrapper (challenge.sh): "nginx" when
+# nginx serves dehydrated's WELLKNOWN directory on port 80 itself
+# (confconsole#44). dehydrated writes and removes the token there, so the
+# hook has nothing to do. Else the add-water server serves the token.
 
 function hook_log {
     default="[$(date "+%F %T")] $(basename "$0"):"
@@ -24,6 +29,10 @@ function deploy_challenge {
     local DOMAIN="${1}" TOKEN_FILENAME="${2}" TOKEN_VALUE="${3}"
 
     hook_log info "Deploying challenge for $DOMAIN"
+    if [[ "$CHALLENGE_SERVER" == nginx ]]; then
+        hook_log info "nginx serves $WELLKNOWN/$TOKEN_FILENAME on http://$DOMAIN/.well-known/acme-challenge/$TOKEN_FILENAME"
+        return 0
+    fi
     hook_log info "Serving $WELLKNOWN/$TOKEN_FILENAME on http://$DOMAIN/.well-known/acme-challenge/$TOKEN_FILENAME"
     $HTTP_BIN --deploy "$WELLKNOWN/$TOKEN_FILENAME"
 }
@@ -32,6 +41,7 @@ function clean_challenge {
     local DOMAIN="${1}" TOKEN_FILENAME="${2}" TOKEN_VALUE="${3}"
 
     hook_log info "Clean challenge for $DOMAIN"
+    [[ "$CHALLENGE_SERVER" != nginx ]] || return 0
     $HTTP_BIN --clean "$WELLKNOWN/$TOKEN_FILENAME"
 }
 
