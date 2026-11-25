@@ -5,7 +5,9 @@ modes, simple, cloud simple or cloud advanced, and the appliance's
 manifest says which of them it allows (``modes:``). The screen writes
 ``appliance.name``, ``installation.mode`` and every overlay of the chain
 at that mode's column, the facts keel itself gives
-(``keel.manifest.facts.gather``), and applies the description. Nothing
+(``keel.manifest.facts.gather``), and applies the description. The
+first choice also writes ``firewall.state: enforce`` (decision 0097,
+section 5), unless the description already says a state. Nothing
 here decides what a mode means: the columns are the manifests', and
 every check is ``keel spec validate``'s.
 
@@ -40,6 +42,7 @@ ENABLED = "enabled"
 DISABLED = "disabled"
 ASK = "ask"
 VIP = "vip"
+ENFORCE = "enforce"
 
 TITLE = "Installation mode"
 LABEL = {SIMPLE: "Simple", CLOUD_SIMPLE: "Cloud simple",
@@ -233,11 +236,35 @@ def with_mode(document: dict, facts: Facts, mode: str,
             "overlays": column(facts, mode, document, answers)}
 
 
+def closed(document: dict) -> dict:
+    """A copy with `firewall.state: enforce`, the state of a new node
+    (decision 0097, section 5)
+
+    A state the description declares stays: it is the operator's word.
+    `enabled: true` stays too, because keel reads it as enforce and
+    refuses it together with `state`. `enabled: false` records no
+    choice (keel inspect of keel 0.23.97 wrote it where it found no
+    file), so it goes. `allow` stays.
+    """
+    found = document.get("firewall")
+    firewall = dict(found) if isinstance(found, dict) else {}
+    if "state" in firewall or firewall.get("enabled") is True:
+        return document
+    firewall.pop("enabled", None)
+    return {**document, "firewall": {**firewall, "state": ENFORCE}}
+
+
 def record(path: str, document: dict, facts: Facts, mode: str,
-           answers: dict | None = None) -> tuple[str, keelcli.Result | None]:
-    """Write the mode and apply it: (the problem or "", the apply)"""
-    problem = keelcli.save_spec(path, with_mode(document, facts, mode,
-                                                answers))
+           answers: dict | None = None,
+           first: bool = False) -> tuple[str, keelcli.Result | None]:
+    """Write the mode and apply it: (the problem or "", the apply)
+
+    `first` is the first choice of the mode, on a new node: it also
+    writes `firewall.state: enforce`. The move of decision 0057 is on a
+    node in the field, where keel's rule B decides (decision 0097)."""
+    described = with_mode(document, facts, mode, answers)
+    problem = keelcli.save_spec(path, closed(described) if first
+                                else described)
     if problem:
         return problem, None
     try:
@@ -267,7 +294,7 @@ def unattended(path: str, document: dict) -> int | None:
     if len(facts.modes) != 1 or asked(facts, facts.modes[0]):
         return None
     mode = facts.modes[0]
-    problem, result = record(path, document, facts, mode)
+    problem, result = record(path, document, facts, mode, first=True)
     if problem:
         say(f"{mode}, the one mode {facts.name} allows, was NOT recorded:"
             f" {problem}")
@@ -294,12 +321,12 @@ def choose(console, path: str, document: dict) -> None:
         code, choice = console.menu(TITLE, TEXT, choices, no_cancel=True,
                                     default_item=choices[0][0])
         if code == OK and save(console, path, document, facts,
-                               MODE_OF[choice]):
+                               MODE_OF[choice], first=True):
             return
 
 
 def save(console, path: str, document: dict, facts: Facts,
-         mode: str) -> bool:
+         mode: str, first: bool = False) -> bool:
     """Ask what the column leaves to the operator, then record and apply;
     whether the mode was recorded"""
     answers = {}
@@ -307,7 +334,7 @@ def save(console, path: str, document: dict, facts: Facts,
         question = ASK_TEXT.format(name=name, label=LABEL[mode])
         answers[name] = ENABLED if console.yesno(
             question, autosize=True) == OK else DISABLED
-    problem, result = record(path, document, facts, mode, answers)
+    problem, result = record(path, document, facts, mode, answers, first)
     console.msgbox(TITLE, applied_text(path, mode, problem, result),
                    autosize=True)
     return not problem
