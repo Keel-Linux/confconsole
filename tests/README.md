@@ -85,7 +85,9 @@ them with the reason.
 
 ## The shell tests
 
-`tests/test-autostart.bats` tests `share/autostart/confconsole-auto`. It
+`tests/test-autostart.bats` tests `share/autostart/confconsole-auto`;
+`tests/test-letsencrypt.bats` tests `share/letsencrypt/challenge.sh`, the
+http-01 hook and the renewal cron job (it also needs `openssl`). It
 needs `bats` and `python3` (for the pty). `tests/coverage.sh` also needs
 `kcov`, and fails when a file under `share/` is below 100 percent:
 

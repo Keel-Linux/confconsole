@@ -34,8 +34,6 @@ EXIT_CODE=0
 SERVICES_TO_RESTART="webmin.service"
 
 LE_TOS_URL=${LE_TOS_URL:-https://acme-v02.api.letsencrypt.org/directory}
-LICENSE=$(curl "$LE_TOS_URL" 2>/dev/null | grep termsOfService \
-    | sed 's|^.*Service": "||; s|",$||')
 
 SH_CONFIG=$SHARE/dehydrated-confconsole.config
 SH_HOOK_HTTP=$SHARE/dehydrated-confconsole.hook-http-01.sh
@@ -43,14 +41,14 @@ SH_HOOK_DNS=$SHARE/dehydrated-confconsole.hook-dns-01.sh
 SH_CRON=$SHARE/dehydrated-confconsole.cron
 SH_DOMAINS=$SHARE/dehydrated-confconsole.domains
 export LEXICON_CONFIG_DIR=$SHARE
+# challenge_server, reload_nginx, fence_up, FENCE_EXIT and FENCE_MESSAGE
+# shellcheck source=share/letsencrypt/challenge.sh
+source "$SHARE/challenge.sh"
 
 export TKL_CERTFILE="/usr/local/share/ca-certificates/cert.crt"
 export TKL_KEYFILE="/etc/ssl/private/cert.key"
 export TKL_COMBINED="/etc/ssl/private/cert.pem"
 export TKL_DHPARAM="/etc/ssl/private/dhparams.pem"
-cp $TKL_CERTFILE $TKL_CERTFILE.bak
-cp $TKL_KEYFILE $TKL_KEYFILE.bak
-cp $TKL_COMBINED $TKL_COMBINED.bak
 
 BASE_BIN_PATH="/usr/lib/confconsole/plugins.d/Lets_Encrypt"
 export HTTP="add-water-client"
@@ -64,6 +62,9 @@ chown -R $HTTP_USR "$(dirname $HTTP_PID)" "$(dirname $LOG)"
 
 usage() {
     echo "$@"
+    # asked here only: a run that requests nothing asks the CA nothing
+    LICENSE=$(curl "$LE_TOS_URL" 2>/dev/null | grep termsOfService \
+        | sed 's|^.*Service": "||; s|",$||')
     cat<<EOF
 Syntax: $APP [--force|-f] [--register|-r] [--challenge|-c <type>] [--provider|-p <name>] [--log-info|-i] [--help|-h]
 
@@ -175,13 +176,12 @@ restart_servers() {
 clean_exit() {
     # ideally do not use 'fatal' in this function
     EXIT_CODE=$1
-    if [[ "$PORT" == "80" ]]; then
-        check_port_80=$(check_port 80)
-        if [[ "$check_port_80" == 'python' ]] || [[ "$check_port_80" == 'python3' ]]; then
-            warning "Python is still listening on port $PORT"
-            info "attempting to kill add-water server"
-            systemctl stop add-water
-        fi
+    # add-water leaves port 80 before the web server starts again on it
+    # (confconsole#44: the check that came here found add-water on port 80
+    # at each run, and warned about it)
+    if [[ "$ADD_WATER" == started ]]; then
+        info "stopping add-water server"
+        systemctl stop add-water
     fi
     [[ "$AUTHBIND_USR" = "$HTTP_USR" ]] || chown "$AUTHBIND_USR" "$AUTHBIND80"
     if [[ $EXIT_CODE -ne 0 ]]; then
@@ -210,7 +210,6 @@ clean_exit() {
     else
         info "$APP completed successfully."
     fi
-    systemctl stop add-water
     # don't quote exit code as it may be empty (exit 0)
     # shellcheck disable=SC2086
     exit $EXIT_CODE
@@ -279,6 +278,16 @@ case $CHALLENGETYPE in
     *)       fatal "Unexpected challenge type: $CHALLENGETYPE"
 esac
 
+# While the init fence is up, a certificate authority gets the fence's 404
+# for an http-01 challenge, and each failed validation counts against its
+# limit: nothing is asked (keel#320). keel requests the certificate when
+# the fence stops for good. Before the trap's work: nothing is changed.
+if [[ "$CHALLENGETYPE" == http-01 ]] && fence_up; then
+    trap - EXIT
+    echo "[$(date "+%F %T")] $APP: $FENCE_MESSAGE" | tee -a "$LOG" >&2
+    exit "$FENCE_EXIT"
+fi
+
 [[ "$HOOK" != "$CC_HOOK" ]] && warning "$CONFIG is not using $CC_HOOK"
 chmod +x "$HOOK"
 
@@ -298,8 +307,24 @@ fi
 
 ### main script ###
 
+cp $TKL_CERTFILE $TKL_CERTFILE.bak
+cp $TKL_KEYFILE $TKL_KEYFILE.bak
+cp $TKL_COMBINED $TKL_COMBINED.bak
+
 WEBSERVER=$(check_port $PORT)
-if [[ -n "$WEBSERVER" ]]; then
+if [[ "$CHALLENGETYPE" == http-01 ]]; then
+    CHALLENGE_SERVER=$(challenge_server "$WEBSERVER" "$WELLKNOWN")
+    export CHALLENGE_SERVER
+fi
+if [[ "$CHALLENGE_SERVER" == nginx ]]; then
+    # nginx serves WELLKNOWN on port 80 (confconsole#44): it keeps
+    # running, dehydrated writes the token there, and nginx is reloaded
+    # after the certificate is written. WEBSERVER is unset so that
+    # clean_exit restarts nothing.
+    info "nginx serves $WELLKNOWN on port $PORT; nginx keeps running"
+    mkdir -p "$WELLKNOWN"
+    unset WEBSERVER
+elif [[ -n "$WEBSERVER" ]]; then
     info "found $WEBSERVER listening on port $PORT"
     if [[ "$CHALLENGETYPE" == 'http-01' ]]; then
         case $WEBSERVER in
@@ -332,7 +357,10 @@ else
     info "No process found listening on port $PORT; continuing"
 fi
 
-[[ "$CHALLENGETYPE" != "dns-01" ]] && systemctl start add-water
+if [[ "$CHALLENGETYPE" == http-01 ]] && [[ "$CHALLENGE_SERVER" != nginx ]]; then
+    systemctl start add-water
+    ADD_WATER=started
+fi
 info "running dehydrated"
 if [[ "$DEBUG" = "y" ]] || [[ "$LOG_INFO" = "y" ]]; then
     dehydrated --cron $force --config $CONFIG 2>&1 | tee -a $DEBUG_LOG
@@ -343,7 +371,12 @@ else
 fi
 if [[ $EXIT_CODE -ne 0 ]]; then
     fatal "dehydrated exited with a non-zero exit code."
-else
-    info "dehydrated complete"
-    exit 0
 fi
+info "dehydrated complete"
+if [[ "$CHALLENGE_SERVER" == nginx ]]; then
+    reload_nginx 2>&1 | tee -a "$LOG"
+    [[ "${PIPESTATUS[0]}" -eq 0 ]] \
+        || fatal "the certificate is written, but nginx did not reload."
+    info "nginx reloaded"
+fi
+exit 0

@@ -2,10 +2,14 @@
 
 export PATH="$PATH:/usr/sbin"
 
-CERT=/etc/ssl/private/cert.pem
+# The CONFCONSOLE_LE_* variables exist for tests/test-letsencrypt.bats.
+CERT=${CONFCONSOLE_LE_CERT:-/etc/ssl/private/cert.pem}
 RENEW=2592000 # seconds to cert expiry to try renew: 2592000 = 30 days
-LOG=/var/log/confconsole/letsencrypt.log
-DEHYDRATED=/usr/lib/confconsole/plugins.d/Lets_Encrypt/dehydrated-wrapper
+LOG=${CONFCONSOLE_LE_LOG:-/var/log/confconsole/letsencrypt.log}
+DEHYDRATED=${CONFCONSOLE_LE_WRAPPER:-/usr/lib/confconsole/plugins.d/Lets_Encrypt/dehydrated-wrapper}
+# the wrapper's exit code while the init fence is up (challenge.sh): the
+# renewal is not tried, and the next run tries it again
+FENCE_EXIT=75
 ARG="--force"
 
 log() {
@@ -25,7 +29,9 @@ else
     log "Attempting renewal."
     dehydrated_output="$($DEHYDRATED $ARG 2>&1)" || exit_code=$?
     log "$dehydrated_output"
-    if [[ $exit_code -ne 0 ]]; then
+    if [[ $exit_code -eq $FENCE_EXIT ]]; then
+        log "deferred: first-login setup not finished; the next run tries again"
+    elif [[ $exit_code -ne 0 ]]; then
         log "ERR: $(basename $DEHYDRATED) exited with a non-zero exit code."
         exit 1
     else

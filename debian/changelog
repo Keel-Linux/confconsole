@@ -1,3 +1,33 @@
+confconsole (2.2.3+keel27) trixie; urgency=medium
+
+  * dehydrated-wrapper no longer stops nginx for a certificate
+    (confconsole#44). Each issue and renewal stopped nginx for about
+    30 s, for the add-water server. Now, when nginx is active, owns port
+    80, and has a location whose alias is dehydrated's WELLKNOWN
+    directory (keel-web 0.4.3 and later has one on port 80 of its
+    default site, before the redirect to HTTPS, on IPv4 and IPv6),
+    dehydrated writes the token there and nginx serves it. After the
+    certificate is written, `nginx -t` runs, then `systemctl reload
+    nginx`; never a restart or a stop. Any other machine (no nginx on
+    port 80, or no such location) keeps the stop and add-water method.
+    The new file /usr/share/confconsole/letsencrypt/challenge.sh makes
+    the decision.
+  * On the add-water method, add-water stops before the web server starts
+    again. The two lines "Python is still listening on port 80" and
+    "attempting to kill add-water server" no longer come at each run.
+  * While the init fence (turnkey-init-fence.service) is active, an
+    http-01 request does not go to the certificate authority (keel#320):
+    the fence answers the challenge with its 404, and each attempt used
+    the failed-validation limit. The wrapper writes "first-login setup
+    not finished; the certificate is requested after it" and exits 75.
+    It changes no file and stops no service. The renewal cron job logs
+    75 as deferred, not as an error. keel requests the certificate when
+    the fence stops for good.
+  * The wrapper asks the certificate authority for its terms of service
+    only for --help, not at each run.
+
+ -- Marcos Mendez <mendez.foto@gmail.com>  Wed, 25 Nov 2026 12:00:00 +0000
+
 confconsole (2.2.3+keel26) trixie; urgency=high
 
   * Decision 0097, section 5: the first choice of the installation mode
